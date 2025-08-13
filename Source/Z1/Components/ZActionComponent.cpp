@@ -5,6 +5,8 @@
 #include "Actions/ZAction.h"
 #include "Actions/ZRollAction.h"
 #include "ZGameplayTags.h"
+#include "Engine/Engine.h"
+#include "Net/UnrealNetwork.h"
 
 // Sets default values for this component's properties
 UZActionComponent::UZActionComponent()
@@ -12,6 +14,9 @@ UZActionComponent::UZActionComponent()
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
+
+	// Enable replication
+	SetIsReplicatedByDefault(true);
 
 	// ...
 	//DefaultActions.Add(UZRollAction::StaticClass());
@@ -44,6 +49,14 @@ void UZActionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 			}
 		}
 	}
+}
+
+void UZActionComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(UZActionComponent, ActiveGameplayTags);
+	DOREPLIFETIME(UZActionComponent, ReplicatedRunningActions);
 }
 
 void UZActionComponent::AddAction(AActor* Instigator, TSubclassOf<UZAction> ActionClass)
@@ -99,14 +112,19 @@ bool UZActionComponent::StartActionByName(AActor* Instigator, FName ActionName)
 	{
 		return false;
 	}
-	
-	// if Client
-	/*if (!GetOwner()->HasAuthority())
-	{
-		ServerStartAction(Instigator, ActionName);
-	}*/
 
-	FoundAction->StartAction(Instigator);
+	// Network handling
+	if (GetOwner()->HasAuthority())
+	{
+		// Server: Execute directly
+		StartActionInternal(Instigator, FoundAction);
+	}
+	else
+	{
+		// Client: Send RPC to server
+		ServerStartActionByName(ActionName);
+	}
+
 	return true;
 }
 
@@ -130,7 +148,18 @@ bool UZActionComponent::StopActionByName(AActor* Instigator, FName ActionName)
 		return false;
 	}
 
-	FoundAction->StopAction(Instigator);
+	// Network handling
+	if (GetOwner()->HasAuthority())
+	{
+		// Server: Execute directly
+		StopActionInternal(Instigator, FoundAction);
+	}
+	else
+	{
+		// Client: Send RPC to server
+		ServerStopActionByName(ActionName);
+	}
+
 	return true;
 }
 
@@ -153,15 +182,18 @@ bool UZActionComponent::StartActionByTag(AActor* Instigator, FGameplayTag Action
 		return false;
 	}
 
-	// if Client
-	/*if (!GetOwner()->HasAuthority())
+	// Network handling
+	if (GetOwner()->HasAuthority())
 	{
-		ServerStartAction(Instigator, ActionName);
-	}*/
+		// Server: Execute directly
+		StartActionInternal(Instigator, FoundAction);
+	}
+	else
+	{
+		// Client: Send RPC to server
+		ServerStartActionByTag(ActionTag);
+	}
 
-
-
-	FoundAction->StartAction(Instigator);
 	return true;
 }
 
@@ -184,8 +216,19 @@ bool UZActionComponent::StopActionByTag(AActor* Instigator, FGameplayTag ActionT
 	{
 		return false;
 	}
-	
-	FoundAction->StopAction(Instigator);
+
+	// Network handling
+	if (GetOwner()->HasAuthority())
+	{
+		// Server: Execute directly
+		StopActionInternal(Instigator, FoundAction);
+	}
+	else
+	{
+		// Client: Send RPC to server
+		ServerStopActionByTag(ActionTag);
+	}
+
 	return true;
 }
 
@@ -213,4 +256,132 @@ UZAction* UZActionComponent::FindActionByTag(FGameplayTag TagName)
 		}
 	}
 	return nullptr;
+}
+
+// Network RPC Implementations
+void UZActionComponent::ServerStartActionByName_Implementation(FName ActionName)
+{
+	if (UZAction* Action = FindActionByName(ActionName))
+	{
+		if (CanStartActionOnServer(GetOwner(), Action))
+		{
+			StartActionInternal(GetOwner(), Action);
+		}
+	}
+}
+
+bool UZActionComponent::ServerStartActionByName_Validate(FName ActionName)
+{
+	return !ActionName.IsNone();
+}
+
+void UZActionComponent::ServerStopActionByName_Implementation(FName ActionName)
+{
+	if (UZAction* Action = FindActionByName(ActionName))
+	{
+		if (Action->IsRunning())
+		{
+			StopActionInternal(GetOwner(), Action);
+		}
+	}
+}
+
+bool UZActionComponent::ServerStopActionByName_Validate(FName ActionName)
+{
+	return !ActionName.IsNone();
+}
+
+void UZActionComponent::ServerStartActionByTag_Implementation(FGameplayTag ActionTag)
+{
+	if (UZAction* Action = FindActionByTag(ActionTag))
+	{
+		if (CanStartActionOnServer(GetOwner(), Action))
+		{
+			StartActionInternal(GetOwner(), Action);
+		}
+	}
+}
+
+bool UZActionComponent::ServerStartActionByTag_Validate(FGameplayTag ActionTag)
+{
+	return ActionTag.IsValid();
+}
+
+void UZActionComponent::ServerStopActionByTag_Implementation(FGameplayTag ActionTag)
+{
+	if (UZAction* Action = FindActionByTag(ActionTag))
+	{
+		if (Action->IsRunning())
+		{
+			StopActionInternal(GetOwner(), Action);
+		}
+	}
+}
+
+bool UZActionComponent::ServerStopActionByTag_Validate(FGameplayTag ActionTag)
+{
+	return ActionTag.IsValid();
+}
+
+void UZActionComponent::OnRep_ActiveGameplayTags()
+{
+	// Handle gameplay tag changes on clients
+	FGameplayTagContainer AddedTags = ActiveGameplayTags.Filter(PreviousActiveGameplayTags);
+	FGameplayTagContainer RemovedTags = PreviousActiveGameplayTags.Filter(ActiveGameplayTags);
+
+	// Update previous state
+	PreviousActiveGameplayTags = ActiveGameplayTags;
+
+	// Notify about tag changes if needed
+	UE_LOG(LogTemp, Log, TEXT("ActiveGameplayTags replicated. Added: %s, Removed: %s"), 
+		*AddedTags.ToStringSimple(), *RemovedTags.ToStringSimple());
+}
+
+// Network Helper Functions
+bool UZActionComponent::IsActionValidForNetworking(UZAction* Action) const
+{
+	return IsValid(Action) && !Action->ActionName.IsNone();
+}
+
+bool UZActionComponent::CanStartActionOnServer(AActor* Instigator, UZAction* Action) const
+{
+	if (!IsActionValidForNetworking(Action))
+	{
+		return false;
+	}
+
+	// Server-side validation
+	return Action->CanStartAction(Instigator);
+}
+
+void UZActionComponent::StartActionInternal(AActor* Instigator, UZAction* Action)
+{
+	if (!IsValid(Action)) return;
+
+	Action->StartAction(Instigator);
+
+	// Update replicated state
+	if (GetOwner()->HasAuthority())
+	{
+		ReplicatedRunningActions.AddUnique(Action->ActionName);
+	}
+
+	// Broadcast event
+	OnActionStarted.Broadcast(this, Action);
+}
+
+void UZActionComponent::StopActionInternal(AActor* Instigator, UZAction* Action)
+{
+	if (!IsValid(Action)) return;
+
+	Action->StopAction(Instigator);
+
+	// Update replicated state
+	if (GetOwner()->HasAuthority())
+	{
+		ReplicatedRunningActions.Remove(Action->ActionName);
+	}
+
+	// Broadcast event
+	OnActionStopped.Broadcast(this, Action);
 }

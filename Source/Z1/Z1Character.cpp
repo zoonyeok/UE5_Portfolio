@@ -17,6 +17,7 @@
 #include "Components/ZSpatialInventoryComponent.h"
 #include "Components/ZEquipmentManagerComponent.h"
 #include "Components/ZAttributeComponent.h"
+#include "Components/ZCombatStateComponent.h"
 #include "ZGameplayTags.h"
 #include "Actions/ZNotifyComboAction.h"
 #include "Actions/ZComboAction.h"
@@ -90,6 +91,7 @@ AZ1Character::AZ1Character()
 	EquipmentComponent = CreateDefaultSubobject<UZEquipmentManagerComponent>(TEXT("EquipmentComponent"));
 	AttributeComponent = CreateDefaultSubobject<UZAttributeComponent>(TEXT("AttributeComponent"));
 	TargetLockComponent = CreateDefaultSubobject<UZTargetLockComponent>(TEXT("TargetLockOnComponent"));
+	CombatStateComponent = CreateDefaultSubobject<UZCombatStateComponent>(TEXT("CombatStateComponent"));
 }
 
 void AZ1Character::BeginPlay()

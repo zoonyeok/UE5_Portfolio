@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
+#include "Engine/Engine.h"
+#include "Net/UnrealNetwork.h"
 #include "ZActionComponent.generated.h"
 
 class UZAction;
@@ -21,6 +23,7 @@ public:
 	UZActionComponent();
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
 	// Called when the game starts
@@ -49,6 +52,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = Actions)
 	bool StopActionByTag(AActor* Instigator, FGameplayTag ActionTag);
 
+	// Network Functions
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerStartActionByName(FName ActionName);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerStopActionByName(FName ActionName);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerStartActionByTag(FGameplayTag ActionTag);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerStopActionByTag(FGameplayTag ActionTag);
+
+	// Replication callbacks
+	UFUNCTION()
+	void OnRep_ActiveGameplayTags();
+
 	UFUNCTION(BlueprintCallable, Category = Actions)
 	UZAction* FindActionByName(FName ActionName);
 
@@ -58,7 +78,7 @@ public:
 	/*UFUNCTION(BlueprintCallable, Category = Actions)
 	UTLAAction* FindActionByTagName(FName TagName);*/
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Tags)
+	UPROPERTY(ReplicatedUsing = OnRep_ActiveGameplayTags, EditAnywhere, BlueprintReadWrite, Category = Tags)
 	FGameplayTagContainer ActiveGameplayTags;
 
 	UPROPERTY(BlueprintAssignable)
@@ -66,6 +86,15 @@ public:
 
 	UPROPERTY(BlueprintAssignable)
 	FOnActionStateChanged OnActionStopped;
+
+protected:
+	// Network validation helpers
+	bool IsActionValidForNetworking(UZAction* Action) const;
+	bool CanStartActionOnServer(AActor* Instigator, UZAction* Action) const;
+
+	// Internal action management
+	void StartActionInternal(AActor* Instigator, UZAction* Action);
+	void StopActionInternal(AActor* Instigator, UZAction* Action);
 
 private:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = ActionsData, meta = (AllowPrivateAccess = "true"))
@@ -76,4 +105,11 @@ private:
 
 	UPROPERTY()
 	TMap<FGameplayTag, UZAction*> ActionsTagMap;
+
+	// Network state tracking
+	UPROPERTY()
+	TArray<FName> ReplicatedRunningActions;
+
+	// Previous state for replication callbacks
+	FGameplayTagContainer PreviousActiveGameplayTags;
 };

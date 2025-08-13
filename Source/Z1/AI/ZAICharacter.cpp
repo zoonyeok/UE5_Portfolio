@@ -5,6 +5,7 @@
 #include "BrainComponent.h"
 #include "ZAIController.h"
 #include "Components/ZAttributeComponent.h"
+#include "Components/ZCombatStateComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Perception/PawnSensingComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -21,6 +22,7 @@ AZAICharacter::AZAICharacter()
 
 	PawnSensingComp = CreateDefaultSubobject<UPawnSensingComponent>(TEXT("PawnSensing"));
 	AttributeComp = CreateDefaultSubobject<UZAttributeComponent>(TEXT("AttributeComp"));
+	CombatStateComp = CreateDefaultSubobject<UZCombatStateComponent>(TEXT("CombatStateComp"));
 	
 	LockOnWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("LockOnWidget"));
 	LockOnWidget->SetWidgetClass(LockOnWidgetClass);

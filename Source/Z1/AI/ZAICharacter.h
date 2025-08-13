@@ -9,6 +9,7 @@
 class UPawnSensingComponent;
 class UZAttributeComponent;
 class UWidgetComponent;
+class UZCombatStateComponent;
 
 UCLASS()
 class Z1_API AZAICharacter : public ACharacter
@@ -42,6 +43,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UZAttributeComponent> AttributeComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UZCombatStateComponent> CombatStateComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = UI, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UWidgetComponent> LockOnWidget;

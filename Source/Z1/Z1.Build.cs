@@ -32,7 +32,9 @@ public class Z1 : ModuleRules
             "SignificanceManager",
             "EnhancedInput",
             "Niagara",
-            "CoreOnline"
+            "CoreOnline",
+            "NetCore",
+            "ReplicationGraph"
         });
 
    //     PrivateDependencyModuleNames.AddRange(new string[]

@@ -25,6 +25,7 @@ class AZBaseWeapon;
 class UZAttributeComponent;
 class UZInventoryItem;
 class UZTargetLockComponent;
+class UZCombatStateComponent;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -54,6 +55,8 @@ public:
 	FORCEINLINE UInputMappingContext* GetMappingContext() const { return DefaultMappingContext; }
 
 	FORCEINLINE class UZInteractComponent* GetInteractionComponent() const { return InteractComponent; }
+
+	FORCEINLINE class UZCombatStateComponent* GetCombatStateComponent() const { return CombatStateComponent; }
 
 	UPROPERTY()
 	bool bCanCombo = false;
@@ -97,6 +100,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Components")
 	TObjectPtr<UZAttributeComponent> AttributeComponent;
+
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Components")
+	TObjectPtr<UZCombatStateComponent> CombatStateComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Weapons)
 	FName WeaponSocketParentBoneName = "hand_r";
