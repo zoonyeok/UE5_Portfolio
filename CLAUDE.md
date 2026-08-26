@@ -24,6 +24,51 @@ Windows + UE 5.4 에디터 환경 전제. 클라우드/리눅스 세션에는 �
 
 테스트 스위트는 없다. 검증은 에디터 PIE + 콘솔 CVar 디버그 드로우(`z.WeaponTraceDebugDraw`, `z.LockOnDebugDraw`, `z.InteractionDebugDraw`)로 한다.
 
+## 개발 워크플로
+
+### 브랜치·커밋
+
+- 작업 브랜치는 `claude/technical-interview-prep-55327f`. **main에 직접 푸시 금지.**
+- 커밋은 기능/수정 단위로 쪼갠다. 버그 수정 커밋 메시지에는 **무엇이 왜 틀렸고 어떤 대안 중 무엇을 골랐는지**를 남긴다 — 커밋 히스토리 자체가 면접 답변 노트로 쓰이는 프로젝트다.
+- 커밋 메시지·코드·문서에 AI 모델명을 넣지 않는다.
+
+### 측정 우선 원칙 (이 프로젝트의 핵심 규율)
+
+이 저장소의 목적은 취업 포트폴리오이고, 자소서·면접의 핵심 산출물이 **수정 전/후 계측 수치**다. 따라서:
+
+1. **버그를 발견해도 baseline 측정 수단이 없으면 먼저 측정 하네스부터 만든다.** 성능·판정 관련 코드는 측정 없이 고치지 않는다 (고치는 순간 before 수치는 영영 사라진다).
+2. 원인이 여러 개인 버그는 **원인별로 나눠 고치고 각각 측정**한다 (예: 무기 궤적 = ① 상태 공유 → ② 샘플링, 단계별 수치 필요).
+3. 측정 결과(CSV, 스크린샷)는 `docs/` 아래에 보존한다.
+
+### AI 협업 기록
+
+프롬프트, AI 제안 중 검증으로 기각한 것, 측정 근거를 `docs/AI-WORKLOG.md`에 실시간으로 남긴다 (채용 전형의 "AI 활용 역량평가" 대비 산출물). 큰 작업을 마치면 한 항목을 추가할 것: 준 컨텍스트 / AI의 답 / 검증 방법 / 채택·기각 판단.
+
+## 디렉터리 맵
+
+```
+Source/Z1/
+├── Z1Character.*            플레이어 (컴포넌트 허브 + Enhanced Input 바인딩)
+├── Z1GameMode.*             게임모드 (강의 유래 봇 스포너, 제거 예정)
+├── ZGameTypes.h             공용 구조체·enum (스탯, 아이템 데이터, 상호작용)
+├── ZGameplayTags.*          네이티브 GameplayTag 선언
+├── ZSaveGame* / ZPlayerState* / ZGameInstance*   세이브·프레임워크 (강의 유래)
+├── Actions/                 UZAction 파생 (콤보·구르기·점프·이동 등)
+├── Components/              캐릭터 부착 컴포넌트 (액션·스탯·인벤토리·장비·상호작용·락온)
+├── Animations/              AnimInstance, 무기 궤적 NotifyState, 콤보 Notify
+├── Items/                   UZInventoryItem(UObject) 파생 + AZWorldItem(액터) 파생
+├── UI/                      UMG 위젯 (인벤토리 그리드·아이템·장비 슬롯·상태바)
+├── Weapons/                 무기 액터 (Base/Melee/Ranged)
+├── AI/                      AI 캐릭터·컨트롤러·BT 노드
+├── Projectiles/             투사체
+├── Player/                  PlayerController, 콤보 데이터 에셋
+├── Interfaces/              상호작용·드롭 인터페이스
+└── GameFrameWork/           GameState
+Plugins/SuperManager/        에디터 전용 에셋 유틸 플러그인 (게임 코드와 무관)
+Config/                      DefaultEngine.ini, DefaultInput.ini
+기술문서.md                   한국어 시스템 설명 (주의사항은 위 참조)
+```
+
 ## 아키텍처 큰 그림
 
 ### 캐릭터 = 컴포넌트 조립
@@ -90,6 +135,21 @@ UI: `ZSpacialInventoryWidget`(루트) → `ZInventoryGridWidget`(격자 렌더 +
 8. `ZInteractComponent.cpp`와 `ZTargetLockComponent.cpp`에 각각 **외부 링키지 전역 `bool bDebugDraw`** — 유니티 빌드 충돌 위험.
 9. `Acos`에 내적을 클램프 없이 전달 (TargetLock, GetMovementDirection) — NaN 가능.
 10. 미사용 멤버/클래스: `Z1Character`의 `InventoryComponent`·`MeleeWeaponComponent`(생성 주석 처리, 항상 null), `UZInventoryComponent`(구버전), `UZWeaponTraceComponent`.
+
+## AI 비서 규칙
+
+이 저장소에서 작업하는 AI가 지켜야 할 규칙. 위 "개발 워크플로"의 측정 우선 원칙과 함께 적용된다.
+
+1. **코드보다 "알려진 문제" 목록을 먼저 신뢰할 것.** 이 코드베이스에는 선언만 있고 동작하지 않는 경로(리플리케이션, UMG 드래그, 죽은 컴포넌트)가 많다. 기존 코드가 어떤 기능의 존재 증거라고 가정하지 말 것.
+2. **멀티플레이 코드를 추가하지 말 것** — 로드맵 5단계(서버 권위 수직 슬라이스)에 도달하기 전까지. 그 전 단계에서는 오히려 가짜 리플리케이션 잔해를 제거하는 방향이 맞다. 인벤토리 복제는 수직 슬라이스에서도 **의도적으로 제외**된 스코프다.
+3. **GAS로 전환하지 말 것.** 커스텀 액션 시스템 유지가 확정된 결정이다. 개선 방향은 태그 레퍼런스 카운팅 추가와 GAS 비교 문서 작성이다.
+4. **죽은 코드를 되살리지 말 것.** `UZWeaponTraceComponent`는 예외 — 삭제가 아니라 Notify 상태의 이전 목적지로 재활용 예정이다. 나머지(구 `UZInventoryComponent`, `FindInteractableActor`, UMG 드래그 경로)는 발견 시 제거 대상.
+5. **이중 저장소를 건드릴 때는 양쪽을 함께 갱신할 것**: `ActionsMap`+`ActionsTagMap`, `GridCells`+`SlotOccupied`, `EquippedInventoryItems`+`EquippedWorldItems`, `InventoryItemWidgetMap`. 장기적으로는 진실의 원천을 하나로 통합하는 방향.
+6. **문서가 코드를 앞서가게 하지 말 것.** `기술문서.md`·README에 "최적화", "동기화" 같은 주장을 쓰려면 수치나 동작하는 코드가 먼저 있어야 한다. 버그를 수정하면 이 파일의 "알려진 문제" 목록에서도 해당 항목을 제거해 문서와 코드를 일치시킬 것.
+7. **새 코드의 기본 위생**: 오버라이드에서 `Super` 호출 누락 금지 / USTRUCT 멤버는 선언부에서 기본값 초기화 / UObject 참조는 `UPROPERTY()` 필수, `new` 금지 / 파일 스코프 전역 변수는 `static` / `Acos`류 입력은 클램프 / 그리드 좌표는 `FIntPoint` (신규 코드에서 `FVector2D`로 정수 좌표 표현 금지).
+8. **컴파일 검증이 불가능한 환경임을 감안**해 엔진 API 시그니처는 UE 5.4 기준으로 보수적으로 사용하고, 확신 없는 API는 사용처를 엔진 소스/문서로 확인할 것.
+9. 주석·식별자 관행 유지: 클래스 접두사 `Z`, 주석은 한국어 위주, 이모지 주석(`// ✅`) 신규 작성 금지.
+10. 리포지토리 목적(취업 포트폴리오)에 맞게, **큰 수정을 마치면 그 결정의 이유를 커밋 메시지나 `docs/`에 남길 것.** "왜"가 기록되지 않은 변경은 면접 자산이 되지 못한다.
 
 ## 현재 작업 컨텍스트
 
