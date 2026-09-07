@@ -19,6 +19,7 @@ void UZCharacterStatusWidget::NativeOnInitialized()
     CreateMaterialDynamic(HealthSphere, HealthDynamicMaterial);
     CreateMaterialDynamic(ManaSphere, ManaDynamicMaterial);
 
+    if (ManaDynamicMaterial)
     ManaDynamicMaterial->SetVectorParameterValue(FName("Color"), FVector4(0.0, 0.0, 1.0, 1.0));
 }
 
@@ -28,8 +29,10 @@ void UZCharacterStatusWidget::NativeConstruct()
     //nullptr 체크 후 Delegate 바인딩
     if (AttributeComp)
     {
-        AttributeComp->OnHpChanged.AddDynamic(this, &UZCharacterStatusWidget::HandleHpChanged);
-        AttributeComp->OnManaChanged.AddDynamic(this, &UZCharacterStatusWidget::HandleMpChanged);
+        AttributeComp->OnHpChanged.AddUniqueDynamic(this, &UZCharacterStatusWidget::HandleHpChanged);
+        AttributeComp->OnManaChanged.AddUniqueDynamic(this, &UZCharacterStatusWidget::HandleMpChanged);
+        AttributeComp->OnCharacterStatsChanged.AddUniqueDynamic(this, &UZCharacterStatusWidget::RefreshAttributeDisplay);
+        RefreshAttributeDisplay();
     }
     else
     {
@@ -41,7 +44,8 @@ void UZCharacterStatusWidget::HandleHpChanged(AActor* InstigatorActor, UZAttribu
 {
     if (HealthDynamicMaterial)
     {
-        float HealthPercent = NewValue / AttributeComp->GetMaxHP();
+        const float MaxHP = OwningComp ? OwningComp->GetMaxHP() : 0.f;
+        const float HealthPercent = MaxHP > 0.f ? FMath::Clamp(NewValue / MaxHP, 0.f, 1.f) : 0.f;
         HealthDynamicMaterial->SetScalarParameterValue(FName("FillAmount"), HealthPercent);
     }
 }
@@ -50,7 +54,8 @@ void UZCharacterStatusWidget::HandleMpChanged(AActor* InstigatorActor, UZAttribu
 {
     if (ManaDynamicMaterial)
     {
-        float ManaPercent = NewValue / AttributeComp->GetMaxMana();
+        const float MaxMana = OwningComp ? OwningComp->GetMaxMana() : 0.f;
+        const float ManaPercent = MaxMana > 0.f ? FMath::Clamp(NewValue / MaxMana, 0.f, 1.f) : 0.f;
         ManaDynamicMaterial->SetScalarParameterValue(FName("FillAmount"), ManaPercent);
     }
 }
@@ -69,4 +74,25 @@ void UZCharacterStatusWidget::CreateMaterialDynamic(TObjectPtr<UImage> Attribute
             AttributeImage->SetBrushFromMaterial(AttributeMaterialDynamic);
         }
     }
+}
+
+
+void UZCharacterStatusWidget::RefreshAttributeDisplay()
+{
+	if (IsValid(AttributeComp))
+	{
+		HandleHpChanged(nullptr, AttributeComp, AttributeComp->GetCurrentHP(), 0.f);
+		HandleMpChanged(nullptr, AttributeComp, AttributeComp->GetCurrentMP(), 0.f);
+	}
+}
+
+void UZCharacterStatusWidget::NativeDestruct()
+{
+	if (IsValid(AttributeComp))
+	{
+		AttributeComp->OnHpChanged.RemoveDynamic(this, &UZCharacterStatusWidget::HandleHpChanged);
+		AttributeComp->OnManaChanged.RemoveDynamic(this, &UZCharacterStatusWidget::HandleMpChanged);
+		AttributeComp->OnCharacterStatsChanged.RemoveDynamic(this, &UZCharacterStatusWidget::RefreshAttributeDisplay);
+	}
+	Super::NativeDestruct();
 }

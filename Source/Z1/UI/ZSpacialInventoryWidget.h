@@ -21,11 +21,17 @@ class Z1_API UZSpacialInventoryWidget : public UUserWidget
 	GENERATED_BODY()
 	
 public:
+	UPROPERTY(Transient)
+	TObjectPtr<UZInventoryItemWidget> DraggedItemWidget;
+
+	virtual void NativeDestruct() override;
+	virtual void NativeConstruct() override;
 
 	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	void InitializeWidget(UZSpatialInventoryComponent* InInventoryComponent, UZEquipmentManagerComponent* InEquipmentComponent);
-	void HandleDropItem(UZInventoryItemWidget* DroppedWidget);
+	bool HandleDropItem(UZInventoryItemWidget* DroppedWidget, const FVector2D& ScreenPosition);
+	bool IsOverInventoryPanels(const FVector2D& ScreenPosition) const;
 
 	FORCEINLINE UZSpatialInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 	FORCEINLINE float GetTileSize() const { return TileSize; }

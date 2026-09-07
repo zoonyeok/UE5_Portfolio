@@ -51,8 +51,7 @@ AZ1Character::AZ1Character()
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
-	// Configure character movement
-	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
+	GetCharacterMovement()->bOrientRotationToMovement = true;            // Character moves in the direction of input...	
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f); // ...at this rotation rate
 
 	// Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
@@ -64,18 +63,15 @@ AZ1Character::AZ1Character()
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
 
-	// Create a camera boom (pulls in towards the player if there is a collision)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 400.0f; // The camera follows at this distance behind the character	
+	CameraBoom->TargetArmLength = 400.0f;       // The camera follows at this distance behind the character	
 	CameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
 	CameraBoom->bDoCollisionTest = false;
 	CameraBoom->SetRelativeLocation(FVector(0.0f, 0.0f, 88.0f)); // 캐릭터 몸 위쪽으로 배치
 
-	// Create a follow camera
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
-	// Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 	FollowCamera->SetRelativeLocation(FVector::ZeroVector);
 
@@ -142,15 +138,14 @@ void AZ1Character::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 		EnhancedInputComponent->BindAction(RComboAttack, ETriggerEvent::Triggered, this, &ThisClass::RComboAttackStart);
 
 		// Rolling
-		EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Triggered, this, &ThisClass::RollStart);
+		EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Completed, this, &ThisClass::RollStart);
 
 		// Dodging
 		EnhancedInputComponent->BindAction(DodgeAction, ETriggerEvent::Triggered, this, &ThisClass::DodgeStart);
 
 		// Climb
 		//Interaction
-		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Triggered, this,
-			&ThisClass::StartInteracting);
+		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Triggered, this, &ThisClass::StartInteracting);
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Completed, this, &ThisClass::StopInteracting);
 
 		// LockOn
@@ -269,6 +264,7 @@ double AZ1Character::GetYawFromControlAndCharacterRotation()
 
 void AZ1Character::PossessedBy(AController* NewController)
 {
+	Super::PossessedBy(NewController);
 	// TODO
 	/*
 	* ZPlayerState에서 불러온 스탯을 UZAttributeComponent에 대입해줘야 하는데, 위 시점에서 UZAttributeComponent생성되지 않았다면?
@@ -293,32 +289,17 @@ void AZ1Character::JumpStart()
 
 void AZ1Character::JumpStop()
 {
+	
 }
 
 void AZ1Character::LComboAttackStart()
 {
-	if (!ActionComponent->StartActionByTag(this, ZGameplayTags::Action_Attack_LCombo))
-	{
-		UZNotifyComboAction* ComboAction = Cast<UZNotifyComboAction>(
-			ActionComponent->FindActionByTag(ZGameplayTags::Action_Attack_LCombo));
-		if (ComboAction && ComboAction->IsRunning())
-		{
-			ComboAction->ProcessComboCommand();
-		}
-	}
+	ActionComponent->StartActionByTag(this, ZGameplayTags::Action_Attack_LCombo);
 }
 
 void AZ1Character::RComboAttackStart()
 {
-	if (!ActionComponent->StartActionByTag(this, ZGameplayTags::Action_Attack_RCombo))
-	{
-		UZNotifyComboAction* ComboAction = Cast<UZNotifyComboAction>(
-			ActionComponent->FindActionByTag(ZGameplayTags::Action_Attack_RCombo));
-		if (ComboAction && ComboAction->IsRunning())
-		{
-			ComboAction->ProcessComboCommand();
-		}
-	}
+	ActionComponent->StartActionByTag(this, ZGameplayTags::Action_Attack_RCombo);
 }
 
 void AZ1Character::StartInteracting()
@@ -333,15 +314,10 @@ void AZ1Character::StopInteracting()
 
 void AZ1Character::LockOn()
 {
-	UE_LOG(LogTemp, Display, TEXT("LockOn Target"));
-
 	TargetLockComponent->ToggleLockOnTarget();
 }
 
 void AZ1Character::XButtonActionStart()
 {
-	if (IsValid(ActionComponent))
-	{
-		ActionComponent->StartActionByTag(this, ZGameplayTags::Controller_Button_X);
-	}
+	ActionComponent->StartActionByTag(this, ZGameplayTags::Controller_Button_X);
 }

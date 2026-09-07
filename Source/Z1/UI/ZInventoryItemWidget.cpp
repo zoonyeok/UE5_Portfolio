@@ -1,24 +1,20 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 #include "UI/ZInventoryItemWidget.h"
+#include "Framework/Application/SlateApplication.h"
 #include "UI/ZSpacialInventoryWidget.h"
 #include "UI/ZInventoryGridWidget.h"
 #include "Interfaces/ZItemDropWidgetInterface.h"
-#include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Items/ZInventoryItem.h"
 #include "Components/SizeBox.h"
 #include "Components/Image.h"
 #include "Components/Border.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
-#include "ZGameTypes.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Blueprint/DragDropOperation.h"
 #include "Components/ZSpatialInventoryComponent.h"
 #include "Components/ZEquipmentManagerComponent.h"
-#include "GameFrameWork/ZGameStateBase.h"
 #include "GameFramework/PlayerController.h"
-#include "GameFramework/HUD.h"
-#include <Blueprint/WidgetTree.h>
 #include "ZEquipmentSlotWidget.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogZInventoryWidget, All, All)
@@ -28,9 +24,6 @@ UZInventoryItemWidget::UZInventoryItemWidget(const FObjectInitializer& ObjectIni
 {
 	bIsDragging = false;
 	bToggleDragging = false;
-	bIsMousePressed = false;
-	DragThreshold = 10.f;		   // 일반 드래그용 픽셀 거리 기준
-	DragThresholdTime = 0.2f;      // 길게 누름 판별 시간(초)
 }
 
 void UZInventoryItemWidget::NativeOnInitialized()
@@ -65,57 +58,27 @@ void UZInventoryItemWidget::InitializeItemWidget(const TObjectPtr<UZInventoryGri
 void UZInventoryItemWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
-
-	// 1) 마우스를 누른 상태이며, 아직 토글 드래그/일반 드래그 중이 아닐 때
-	//    누르고 있던 시간이 DragThresholdTime을 초과하면 일반 드래그 시작
-	if (bIsMousePressed && !bToggleDragging && !bIsDragging)
+	if (bIsDragging)
 	{
-		if (APlayerController* PlayerController = GetOwningPlayer())
-		{
-			FVector2D CurrentMousePosition;
-			if (PlayerController->GetMousePosition(CurrentMousePosition.X, CurrentMousePosition.Y))
-			{
-				float ReleasedTime = GetWorld()->GetTimeSeconds();
-				float HeldTime = ReleasedTime - PressedTime;
-
-				if (HeldTime > DragThresholdTime)
-				{
-					StartDragging(CurrentMousePosition);
-					UpdateDragPosition(CurrentMousePosition);
-					//UpdateColor
-				}
-			}
-		}
-	}
-
-	// 2) 일반 드래그 중이거나 토글 드래그 중이라면 마우스 위치를 추적해서 업데이트
-	if (bIsDragging || bToggleDragging)
-	{
-		if (APlayerController* PlayerController = GetOwningPlayer())
-		{
-			FVector2D CurrentMousePosition;
-			if (PlayerController->GetMousePosition(CurrentMousePosition.X, CurrentMousePosition.Y))
-			{
-				UpdateDragPosition(CurrentMousePosition);
-				//UpdateColor
-			}
-		}
+		UpdateDragPosition(FSlateApplication::Get().GetCursorPos());
 	}
 }
 
 FReply UZInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
-	if (InMouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton))
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
-		bIsMousePressed = true;
-		PressedTime = GetWorld()->GetTimeSeconds();
-		InitialMousePosition = InMouseEvent.GetScreenSpacePosition();
-
-		// "누른 시점"에 바로 토글 드래그를 하지 않고,
-		// 짧은 클릭인지(토글), 길게 누른 건지(일반 드래그) Tick 또는 MouseUp에서 분기
+		UZSpacialInventoryWidget* Inventory = IsValid(GridWidget) ? GridWidget->GetSpacialInventoryWidget().Get() : nullptr;
+		if (Inventory && IsValid(Inventory->DraggedItemWidget))
+		{
+			Inventory->DraggedItemWidget->StopDragging(InMouseEvent);
+		}
+		else
+		{
+			StartDragging(InMouseEvent.GetScreenSpacePosition());
+		}
 		return FReply::Handled();
 	}
-
 	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
 }
 
@@ -123,36 +86,14 @@ FReply UZInventoryItemWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry,
 {
 	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
-		bIsMousePressed = false;
-
-		const float HeldTime = GetWorld()->GetTimeSeconds() - PressedTime;
-
-		// 이미 일반 드래그 중이었다면 버튼 업과 함께 해제
-		if (bIsDragging)
-		{
-			if (StopDragging(InMouseEvent) && bToggleDragging)
-			{
-				bToggleDragging = false;
-			}
-		}
-		else
-		{
-			// (1) 마우스 업 시점에 "짧은 클릭"이었다면 → 토글 드래그를 토글
-			// (2) 이미 "길게 누름"으로 넘어가면 Tick에서 StartDragging이 실행
-			//     (즉 HeldTime이 DragThresholdTime보다 큰 경우, OnMouseButtonUp에서는 따로 처리 없음)
-			bToggleDragging = !bToggleDragging;
-
-			// "짧게 누름"일 때만 새로 토글 드래그 시작
-			if (HeldTime < DragThresholdTime && bToggleDragging)
-			{
-				StartDragging(InMouseEvent.GetScreenSpacePosition());
-			}
-		}
-
 		return FReply::Handled();
 	}
-
 	return Super::NativeOnMouseButtonUp(InGeometry, InMouseEvent);
+}
+
+FReply UZInventoryItemWidget::NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	return NativeOnMouseButtonDown(InGeometry, InMouseEvent);
 }
 
 void UZInventoryItemWidget::NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
@@ -170,14 +111,8 @@ void UZInventoryItemWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent
 void UZInventoryItemWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent,
 	UDragDropOperation*& OutOperation)
 {
-	Super::NativeOnDragDetected(InGeometry, InMouseEvent, OutOperation);
-
-	UDragDropOperation* DragOperation = NewObject<UDragDropOperation>();
-	DragOperation->DefaultDragVisual = this;
-	//DragOperation->DefaultDragVisual->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	DragOperation->Payload = this;
-	DragOperation->Pivot = EDragPivot::MouseDown;
-	OutOperation = DragOperation;
+	// Click-to-carry uses its own cursor widget, not a Slate drag/drop operation.
+	OutOperation = nullptr;
 }
 
 FReply UZInventoryItemWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
@@ -248,36 +183,58 @@ void UZInventoryItemWidget::SetItemBackgroundColor()
 
 void UZInventoryItemWidget::StartDragging(const FVector2D& MousePosition)
 {
-	bIsDragging = true;
-
-	//TODO : Delegate?
-	if (ParentWidget.IsValid())
+	if (!IsValid(GridWidget) || !IsValid(InventoryItem))
 	{
-		if (UZEquipmentSlotWidget* SlotWidget = Cast<UZEquipmentSlotWidget>(ParentWidget))
+		return;
+	}
+	UZSpacialInventoryWidget* Inventory = GridWidget->GetSpacialInventoryWidget();
+	if (!IsValid(Inventory))
+	{
+		return;
+	}
+	// Keep the cursor widget alive even when RefreshGrid rebuilds its old panel.
+	Inventory->DraggedItemWidget = this;
+	bIsDragging = true;
+	bToggleDragging = false;
+	if (UZEquipmentSlotWidget* SlotWidget = Cast<UZEquipmentSlotWidget>(ParentWidget.Get()))
+	{
+		if (UZEquipmentManagerComponent* EquipComp = SlotWidget->GetEquipComponent())
 		{
-			if (UZEquipmentManagerComponent* EquipComp = SlotWidget->GetEquipComponent())
-			{
-				EquipComp->UnEquipItem(SlotWidget->GetItemSlotType(), SlotWidget->GetItem());
-			}
+			EquipComp->UnEquipItem(SlotWidget->GetItemSlotType(), SlotWidget->GetItem());
 		}
 	}
+	ParentWidget.Reset();
+	ItemDisplaySize = InventoryItem->GetGridSize() * TileSize;
+	RemoveFromParent();
+	SetDesiredSizeInViewport(ItemDisplaySize);
+	SetAlignmentInViewport(FVector2D(0.5f, 0.5f));
+	AddToViewport(100);
+	UpdateDragPosition(MousePosition);
+}
 
-	this->RemoveFromParent();
-
-	FVector2D WidgetSize = this->GetDesiredSize();
-	this->SetDesiredSizeInViewport(WidgetSize);
-
-	FVector2D AdjustedPosition = MousePosition - (WidgetSize * 0.5f);
-	this->SetPositionInViewport(AdjustedPosition, true);
-	this->AddToViewport();
-
-	GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Green, TEXT("Dragging Started"));
+void UZInventoryItemWidget::CancelDragging()
+{
+	bIsDragging = false;
+	bToggleDragging = false;
+	if (IsInViewport() || GetParent())
+	{
+		RemoveFromParent();
+	}
 }
 
 bool UZInventoryItemWidget::StopDragging(const FPointerEvent& InMouseEvent)
 {
 	FVector2D MousePosition = InMouseEvent.GetScreenSpacePosition();
 	TObjectPtr<UZSpacialInventoryWidget> SpacialInventoryWidget = GridWidget->GetSpacialInventoryWidget();
+
+	if (!IsValid(SpacialInventoryWidget))
+	{
+		return false;
+	}
+	if (!SpacialInventoryWidget->IsOverInventoryPanels(MousePosition))
+	{
+		return SpacialInventoryWidget->HandleDropItem(this, MousePosition);
+	}
 
 	auto DropTargets = SpacialInventoryWidget->GetDropTargets();
 	for (auto& DropTarget : DropTargets)
@@ -289,6 +246,10 @@ bool UZInventoryItemWidget::StopDragging(const FPointerEvent& InMouseEvent)
 				if (DropTargetInterface->HandleDropItem(this, MousePosition))
 				{
 					bIsDragging = false;
+					if (SpacialInventoryWidget->DraggedItemWidget == this)
+					{
+						SpacialInventoryWidget->DraggedItemWidget = nullptr;
+					}
 					GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Red, TEXT("Dragging Stopped"));
 					return true; // 첫 번째 유효한 대상에 대해 처리 후 종료
 				}
@@ -301,11 +262,9 @@ bool UZInventoryItemWidget::StopDragging(const FPointerEvent& InMouseEvent)
 
 void UZInventoryItemWidget::UpdateDragPosition(const FVector2D& MousePosition)
 {
-	FVector2D WidgetSize = this->GetDesiredSize();
-	FVector2D AdjustedPosition = MousePosition - (WidgetSize * 0.5f);
-	SetPositionInViewport(AdjustedPosition, true);
-
-	//여기서 예상 타일에 색칠?
-	FVector2D ItemGridSize = InventoryItem->GetGridSize();
-	GridWidget->SetTileColorInGrid(MousePosition, ItemGridSize, FColor::Green);
+	// MousePosition is always an absolute Slate coordinate, including in PIE.
+	const FVector2D ViewportPosition =
+		UWidgetLayoutLibrary::GetViewportWidgetGeometry(this).AbsoluteToLocal(MousePosition);
+	SetPositionInViewport(ViewportPosition, false);
+	GridWidget->SetTileColorInGrid(MousePosition, InventoryItem->GetGridSize(), FColor::Green);
 }

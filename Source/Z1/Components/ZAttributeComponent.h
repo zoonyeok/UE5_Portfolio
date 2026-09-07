@@ -9,6 +9,8 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOnAttributeChanged, AActor*, InstigatorActor, UZAttributeComponent*, OwningComp, float, NewValue, float, Delta);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterStatsChanged);
+
 class AZPlayerState;
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
@@ -25,8 +27,12 @@ protected:
 	virtual void BeginPlay() override;
 
 public:	
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	
 	FCharacterStats GetFCharacterStats();
 
+	// Authority only: clients receive the resulting attributes through replication.
 	void InitializeCharacterStats(FCharacterStats PlayerStats);
 
 	bool ChangeCurrentHP(UObject* InstigatorActor, float DeltaHP);
@@ -50,28 +56,41 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Events")
 	FOnAttributeChanged OnManaChanged;
 
+	// Refresh derived UI values when maximum attributes change.
+	UPROPERTY(BlueprintAssignable, Category = Events)
+	FOnCharacterStatsChanged OnCharacterStatsChanged;
+
 private:
-	UPROPERTY(EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	UFUNCTION()
+	void OnRep_CurrentHP(float OldHP);
+
+	UFUNCTION()
+	void OnRep_CurrentMana(float OldMana);
+
+	UFUNCTION()
+	void OnRep_CharacterStats();
+
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentHP, EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	float CurrentHP;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentMana, EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	float CurrentMana;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(Replicated, EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	float CurrentStamina;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(Replicated, EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	float CurrentBetaEnergy;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(Replicated, EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	float CurrentShield;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(Replicated, EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	float AttackPower;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(Replicated, EditDefaultsOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	float ShieldAttackPower;
     
-    UPROPERTY()
+    UPROPERTY(ReplicatedUsing = OnRep_CharacterStats)
     FCharacterStats CharacterStats;
 };

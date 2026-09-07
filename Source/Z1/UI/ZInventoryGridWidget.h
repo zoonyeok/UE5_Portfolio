@@ -53,7 +53,7 @@ public:
 	UFUNCTION()
 	virtual bool HandleDropItem(UZInventoryItemWidget* DroppedWidget, const FVector2D& MousePosition) override;
 
-	void SetTileColorInGrid(const FVector2D& StartLocation, const FVector2D& ItemSize, const FColor& Color);
+	void SetTileColorInGrid(const FVector2D& StartLocation, const FIntPoint& ItemSize, const FColor& Color);
 
 public:
 	UPROPERTY(meta = (BindWidget))
@@ -64,7 +64,7 @@ public:
 	FORCEINLINE TObjectPtr<UZSpacialInventoryWidget> GetSpacialInventoryWidget() const { return SpacialInventoryWidget; }
 
 	UFUNCTION()
-	FIntPoint CalculateDropPosition(const FVector2D& InMousePosition, const FVector2D& ItemGridSize, bool bCorrectionApplied = false);
+	FIntPoint CalculateDropPosition(const FVector2D& InMousePosition, const FIntPoint& ItemGridSize, bool bCorrectionApplied = false);
 protected:
 
 	UFUNCTION(BlueprintCallable)
@@ -76,10 +76,7 @@ protected:
 	UFUNCTION(BlueprintCallable)
 	void RefreshGrid();
 
-	bool IsItemDropHighlightOutOfBounds(const FIntPoint& ItemDropPosition, const FVector2D& ItemSize);
-
-	void UpdateInventoryItemWidgetMap(UZInventoryItemWidget* ItemWidget, const FIntPoint& OldPosition, const FIntPoint& NewPosition);
-
+	bool IsItemDropHighlightOutOfBounds(const FIntPoint& ItemDropPosition, const FIntPoint& ItemSize);
 
 protected:
 	UPROPERTY(meta = (BindWidget))
@@ -114,7 +111,7 @@ protected:
 	FVector2D HighlightedTileSize = FVector2D::ZeroVector;
 
 	UPROPERTY()
-	FVector2D GridSize;
+	FIntPoint GridSize;
 
 	UPROPERTY()
 	FColor HighlightedTileColor = FColor(0.004183, 0.050347, 0.006972, 0.8);
@@ -126,12 +123,9 @@ protected:
 	TMap<FIntPoint, UZInventoryItemWidget*> InventoryItemWidgetMap;
 
 private:
-	void HandleOutOfBoundsDrop(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem);
-	void HandleSwap(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem, 
+	bool HandleSwap(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem, 
 		const FVector2D& InMousePosition, const FIntPoint& ItemDropPos);
-	void HandleAddItem(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem,
+	bool HandleAddItem(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem,
 		const FIntPoint& ItemDropPos);
-
-
 };
 

@@ -24,13 +24,14 @@ public:
 
 	void ShowLockOnWidget(bool bShow);
 
+	void PlayHitReactAnimation(TObjectPtr<AActor> Instigator);
+
+	void AimoffSetToTarget(TObjectPtr<AActor> Target);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void PostInitializeComponents() override;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category=Animation)
-	TObjectPtr<UAnimMontage> DeathAnimMontage; 
-	
 	UPROPERTY(EditDefaultsOnly, Category = Weapon)
 	FName SocketName;
 
@@ -52,6 +53,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = UI, meta = (AllowPrivateAccess = "true"))
 	FVector2D LockOnSize;
 	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = Animation)
+	TObjectPtr<UAnimMontage> FrontHitMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = Animation)
+	TObjectPtr<UAnimMontage> BackHitMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = Animation)
+	TObjectPtr<UAnimMontage> RightHitMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = Animation)
+	TObjectPtr<UAnimMontage> LeftHitMontage;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = Animation)
+	TObjectPtr<UAnimMontage> DeathAnimMontage;
+
 	UFUNCTION(BlueprintCallable, Category = AI)
 	void OnPawnSeen(APawn* Pawn);
 
@@ -59,5 +72,11 @@ protected:
 	void OnHealthChanged(AActor* InstigatorActor, UZAttributeComponent* OwningComp, float NewValue, float Delta);
 
 	void EnableRagdoll();
+
+	UFUNCTION(BlueprintCallable)
+	void AfterCharacterDeath(UAnimMontage* InAttackMontage, bool bProperlyEnded);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = AI)
+	TArray<TObjectPtr<class ATargetPoint>> PatrolPoints;
 };
 

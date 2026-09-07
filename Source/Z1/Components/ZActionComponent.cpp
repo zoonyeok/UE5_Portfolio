@@ -12,18 +12,21 @@ UZActionComponent::UZActionComponent()
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
-
-	// ...
-	//DefaultActions.Add(UZRollAction::StaticClass());
+	SetIsReplicatedByDefault(true);
+	
+	CurrentAction = nullptr;
 }
 
 void UZActionComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	for (auto ActionClass : DefaultActions)
+	if (GetOwner()->HasAuthority())
 	{
-		AddAction(GetOwner(), ActionClass);
+		for (const auto& Action : DefaultActions)
+		{
+			AddAction(GetOwner(), Action);
+		}
 	}
 }
 
@@ -31,16 +34,19 @@ void UZActionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	FString DebugMsg = GetNameSafe(GetOwner()) + " : " + ActiveGameplayTags.ToStringSimple();
-	GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::White, DebugMsg);
+	// FString DebugMsg = GetNameSafe(GetOwner()) + " : " + ActiveGameplayTags.ToStringSimple();
+	// GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::White, DebugMsg);
 
-	for (const auto& ActionTuple : ActionsTagMap)
+	if (GetOwner()->HasAuthority()) //?
 	{
-		if (const TObjectPtr<UZAction>& Action = ActionTuple.Value)
+		for (const auto& ActionTuple : ActionsTagMap)
 		{
-			if (Action->IsBeUpdated())
+			if (const TObjectPtr<UZAction>& Action = ActionTuple.Value)
 			{
-				Action->UpdateAction(GetOwner(), DeltaTime);
+				if (Action->IsBeUpdated())
+				{
+					Action->UpdateAction(GetOwner(), DeltaTime);
+				}
 			}
 		}
 	}
@@ -48,11 +54,12 @@ void UZActionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 
 void UZActionComponent::AddAction(AActor* Instigator, TSubclassOf<UZAction> ActionClass)
 {
-	if (!ensure(ActionClass))
+	if (!IsValid(ActionClass))
 	{
 		return;
 	}
 
+	//NewObject하면 Delete 수동으로 해줘야하나
 	UZAction* NewAction = NewObject<UZAction>(GetOwner(), ActionClass);
 	if (IsValid(NewAction))
 	{
@@ -138,13 +145,19 @@ bool UZActionComponent::StartActionByTag(AActor* Instigator, FGameplayTag Action
 {
 	if (!ActionsTagMap.Contains(ActionTag))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("No ActionName in ActionMaps"));
+		UE_LOG(LogTemp, Warning, TEXT("No ActionTag in ActionMaps"));
 		return false;
 	}
 
 	UZAction* FoundAction = ActionsTagMap.FindRef(ActionTag);
 	if (!IsValid(FoundAction))
 	{
+		return false;
+	}
+	
+	if (FoundAction->IsBlockedByTags(ActiveGameplayTags))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Failed to run: %s"), *FoundAction->ActionName.ToString());
 		return false;
 	}
 
@@ -158,9 +171,7 @@ bool UZActionComponent::StartActionByTag(AActor* Instigator, FGameplayTag Action
 	{
 		ServerStartAction(Instigator, ActionName);
 	}*/
-
-
-
+	
 	FoundAction->StartAction(Instigator);
 	return true;
 }

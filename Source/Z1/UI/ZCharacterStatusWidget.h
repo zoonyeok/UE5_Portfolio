@@ -25,6 +25,7 @@ protected:
 	virtual void NativeOnInitialized() override;
 
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	
 private:
 	UPROPERTY(meta = (BindWidget))
@@ -47,5 +48,8 @@ private:
 	UFUNCTION()
 	void HandleMpChanged(AActor* InstigatorActor, UZAttributeComponent* OwningComp, float NewValue, float Delta);
 	
+	UFUNCTION()
+	void RefreshAttributeDisplay();
+
 	void CreateMaterialDynamic(TObjectPtr<UImage> AttributeImage, TObjectPtr<UMaterialInstanceDynamic>& AttributeMaterialDynamic);
 };

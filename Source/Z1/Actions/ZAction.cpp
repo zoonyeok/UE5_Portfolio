@@ -28,17 +28,14 @@ void UZAction::StopAction(AActor* Instigator)
 
 void UZAction::UpdateAction(AActor* Instigator, float DeltaTime)
 {
+	// 버프, 디퍼프, 쿨 다운 처리
+	
 }
 
 bool UZAction::CanStartAction(AActor* Instigator)
 {
-	UZActionComponent* Comp = GetOwningComponent();
-	if (Comp->ActiveGameplayTags.HasAny(BlockedTags))
-	{
-		FString FailedMsg = FString::Printf(TEXT("Failed to run: %s"), *ActionName.ToString());
-		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, FailedMsg);
-		return false;
-	}
+	// 쿨 다운 검사
+	
 
 	// 콤보 액션인 경우 실행 가능
 	if (bIsComboAction)
@@ -55,6 +52,11 @@ bool UZAction::CanStartAction(AActor* Instigator)
 	return true;
 }
 
+bool UZAction::IsBlockedByTags(const FGameplayTagContainer& OwnedTags) const
+{
+	return OwnedTags.HasAny(BlockedTags);
+}
+
 bool UZAction::IsRunning() const
 {
 	return bIsRunning;
@@ -67,11 +69,7 @@ bool UZAction::IsBeUpdated() const
 
 UWorld* UZAction::GetWorld() const
 {
-	if (const AActor* Actor = Cast<AActor>(GetOuter()))
-	{
-		return Actor->GetWorld();
-	}
-	return nullptr;
+	return IsValid(StateComponent) ? StateComponent->GetWorld() : nullptr;
 }
 
 void UZAction::Initialize(UZActionComponent* NewActionComponent)

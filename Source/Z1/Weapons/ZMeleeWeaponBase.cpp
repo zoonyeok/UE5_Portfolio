@@ -41,10 +41,9 @@ void AZMeleeWeaponBase::EndAttack()
     Super::EndAttack();
 }
 
-EInventoryActionResult AZMeleeWeaponBase::PickUp(APawn* Player)
+EInventoryActionResult AZMeleeWeaponBase::PickUp_Implementation(APawn* Player)
 {
-	return Super::PickUp(Player);
-	//return EInventoryActionResult();
+	return Super::PickUp_Implementation(Player);
 }
 
 UZInventoryItem* AZMeleeWeaponBase::ConvertToInventoryItem()

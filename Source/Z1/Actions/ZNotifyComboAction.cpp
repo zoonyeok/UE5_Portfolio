@@ -9,7 +9,7 @@
 
 UZNotifyComboAction::UZNotifyComboAction()
 {
-	
+	bIsComboAction = true;
 }
 
 void UZNotifyComboAction::StartAction(AActor* Instigator)
@@ -18,7 +18,6 @@ void UZNotifyComboAction::StartAction(AActor* Instigator)
 	Super::StartAction(Instigator);
 
 	// 콤보 입력 로직으로 연결
-	// (첫 공격 시도)
 	ProcessComboCommand();
 }
 

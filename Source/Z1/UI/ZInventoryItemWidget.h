@@ -51,11 +51,13 @@ public:
 	FOnItemRemoved OnItemRemoved;
 	
 	void StartDragging(const FVector2D& MousePosition);
+	void CancelDragging();
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
 
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
@@ -119,13 +121,7 @@ protected:
 
 	TWeakObjectPtr<UUserWidget> ParentWidget;
 
-	bool bIsMousePressed = false;
 	bool bToggleDragging = false;
-	FVector2D InitialMousePosition;
-	FVector2D DragOffset;
-	float DragThreshold = 10.0f;
-	double DragThresholdTime = 0.0;
-	double PressedTime = 0.0;
 	
 	bool StopDragging(const FPointerEvent& InMouseEvent);
 	void UpdateDragPosition(const FVector2D& MousePosition);

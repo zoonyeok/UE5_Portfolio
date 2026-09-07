@@ -17,6 +17,7 @@
 
 void UZSaveGameSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
+	Super::Initialize(Collection);
 }
 
 

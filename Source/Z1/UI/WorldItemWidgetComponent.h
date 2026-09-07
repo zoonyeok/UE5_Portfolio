@@ -45,7 +45,7 @@ public:
 	void SetInteractableActionText(const FText& NewActionText);
 
 	// Delegates
-	// [local + server] Called when the player presses the interact key whilst focusing on this interactable actor
+	// [local + server] Called when the player presses the interact key while focusing on this interactable actor
 	UPROPERTY(EditDefaultsOnly, BlueprintAssignable)
 	FOnBeginInteract OnBeginInteract;
 
@@ -53,7 +53,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintAssignable)
 	FOnEndInteract OnEndInteract;
 
-	//[local + server] Called when the player presses the interact key whilst focusing on this interactable actor
+	//[local + server] Called when the player presses the interact key while focusing on this interactable actor
 	UPROPERTY(EditDefaultsOnly, BlueprintAssignable)
 	FOnBeginFocus OnBeginFocus;
 
@@ -64,8 +64,8 @@ public:
 	//[local + server] Called when the player has interacted with the item for the required amount of time
 	UPROPERTY(EditDefaultsOnly, BlueprintAssignable)
 	FOnInteract OnInteract;
+	
 protected:
-
 	//Called when game started
 	virtual void Deactivate() override;
 
@@ -93,4 +93,7 @@ public:
 	//0-1 denoting how far through the interact we are.
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	float GetInteractPercentage();
+	
+	virtual void BeginPlay() override;
+	virtual void InitializeComponent() override;
 };

@@ -8,7 +8,8 @@
 
 UWorldItemWidgetComponent::UWorldItemWidgetComponent()
 {
-	SetComponentTickEnabled(false);
+	bWantsInitializeComponent = true;
+	bAutoActivate = true;
 
 	InteractionTime = 0.f;
 	InteractionDistance = 200.f;
@@ -20,9 +21,6 @@ UWorldItemWidgetComponent::UWorldItemWidgetComponent()
 	Space = EWidgetSpace::Screen;
 	DrawSize = FIntPoint(600, 100);
 	bDrawAtDesiredSize = true;
-
-	SetActive(true);
-	SetHiddenInGame(true); // Default
 }
 
 void UWorldItemWidgetComponent::SetInteractableNameText(const FText& NewNameText)
@@ -35,6 +33,15 @@ void UWorldItemWidgetComponent::SetInteractableActionText(const FText& NewAction
 {
 	InteractableActionText = NewActionText;
 	RefreshWidget();
+}
+
+void UWorldItemWidgetComponent::InitializeComponent()
+{
+	Super::InitializeComponent();
+
+	SetActive(true);                // 먼저 활성화
+	SetComponentTickEnabled(false); // 그다음 Tick 비활성화
+	SetHiddenInGame(true);
 }
 
 void UWorldItemWidgetComponent::Deactivate()
@@ -57,6 +64,11 @@ bool UWorldItemWidgetComponent::CanInteract(AZ1Character* Character) const
 {
 	const bool bPlayerAlreadyInteracting = !bAllowMultipleInteractors && Interactors.Num() >= 1;
 	return !bPlayerAlreadyInteracting && IsActive() && GetOwner() != nullptr && Character != nullptr;
+}
+
+void UWorldItemWidgetComponent::BeginPlay()
+{
+	Super::BeginPlay();
 }
 
 void UWorldItemWidgetComponent::RefreshWidget()
@@ -123,7 +135,7 @@ void UWorldItemWidgetComponent::EndFocus(AZ1Character* Character)
 
 void UWorldItemWidgetComponent::BeginInteract(AZ1Character* Character)
 {
-	if (CanInteract(Character))
+	if (IsValid(Character) && CanInteract(Character))
 	{
 		Interactors.AddUnique(Character);
 		OnBeginInteract.Broadcast(Character);
@@ -132,13 +144,16 @@ void UWorldItemWidgetComponent::BeginInteract(AZ1Character* Character)
 
 void UWorldItemWidgetComponent::EndInteract(AZ1Character* Character)
 {
-	Interactors.RemoveSingle(Character);
-	OnEndInteract.Broadcast(Character);
+	if (IsValid(Character))
+	{
+		Interactors.RemoveSingle(Character);
+		OnEndInteract.Broadcast(Character);
+	}
 }
 
 void UWorldItemWidgetComponent::Interact(AZ1Character* Character)
 {
-	if (CanInteract(Character))
+	if (IsValid(Character) && CanInteract(Character))
 	{
 		OnInteract.Broadcast(Character);
 	}
@@ -146,13 +161,14 @@ void UWorldItemWidgetComponent::Interact(AZ1Character* Character)
 
 float UWorldItemWidgetComponent::GetInteractPercentage()
 {
-	if (FMath::IsNearlyZero(InteractionTime)) return 0.f;
+	if (FMath::IsNearlyZero(InteractionTime))
+		return 0.f;
 
 	if (Interactors.IsValidIndex(0))
 	{
 		if (AZ1Character* Interactor = Interactors[0])
 		{
-			if (Interactor && Interactor->GetInteractionComponent() && Interactor->GetInteractionComponent()->IsInteracting())
+			if (IsValid(Interactor) && Interactor->GetInteractionComponent() && Interactor->GetInteractionComponent()->IsInteracting())
 			{
 				return 1.f - FMath::Abs(Interactor->GetInteractionComponent()->GetRemainingInteractionTime() / InteractionTime);
 			}

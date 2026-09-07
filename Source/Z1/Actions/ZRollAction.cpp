@@ -32,6 +32,19 @@ void UZRollAction::StartAction(AActor* Instigator)
 		return;
 	}
 
+	TObjectPtr<AZ1Character> Character = Cast<AZ1Character>(GetCharacter());
+	if (!IsValid(Character)) return;
+
+	// 방향키 누른 방향으로 구르기
+	FVector InputDirection = Character->GetLastMovementInputVector();
+	if (!InputDirection.IsNearlyZero())
+	{
+		FRotator NewRotation = InputDirection.Rotation();
+		NewRotation.Pitch = 0.0f;
+		NewRotation.Roll = 0.0f;
+		Character->SetActorRotation(NewRotation);
+	}
+
 	AnimInstance->Montage_Play(RollMontage);
 
 	// Montage 종료 시점에 호출될 델리게이트 바인딩
@@ -47,9 +60,9 @@ void UZRollAction::StopAction(AActor* Instigator)
 
 void UZRollAction::OnRollMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
-	if (Montage == RollMontage && !bInterrupted)
+	if (Montage == RollMontage /*&& !bInterrupted*/)
 	{
-		AActor* Instigator = GetOwningComponent()->GetOwner();
+		TObjectPtr<AActor> Instigator = GetOwningComponent()->GetOwner();
 		if (IsValid(Instigator))
 		{
 			StopAction(Instigator);

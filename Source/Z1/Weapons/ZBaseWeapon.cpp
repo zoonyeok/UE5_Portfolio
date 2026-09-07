@@ -72,9 +72,14 @@ float AZBaseWeapon::CalculateFinalDamage()
 	
 	return BaseDamage;
 }
-
+ 
 EInventoryActionResult AZBaseWeapon::PickUp_Implementation(APawn* Player)
 {
+	if (!IsValid(Player))
+	{
+		return EInventoryActionResult::Fail;
+	}
+	
     AZ1Character* Character = Cast<AZ1Character>(Player);
     if (!IsValid(Character))
     {
@@ -82,7 +87,6 @@ EInventoryActionResult AZBaseWeapon::PickUp_Implementation(APawn* Player)
         return EInventoryActionResult::Fail;
     }
 
-    //
     UZSpatialInventoryComponent* InvenComp = Character->GetComponentByClass<UZSpatialInventoryComponent>();
     if (!IsValid(InvenComp))
     {
@@ -90,8 +94,14 @@ EInventoryActionResult AZBaseWeapon::PickUp_Implementation(APawn* Player)
         return EInventoryActionResult::Fail;
     }
 
+	UZInventoryItem* InventoryItem = ConvertToInventoryItem();
+	if (!IsValid(InventoryItem))
+	{
+		return EInventoryActionResult::Fail;
+	}
+	
     UZWeaponInventoryItem* WeaponInvenItem = Cast<UZWeaponInventoryItem>(ConvertToInventoryItem());
-    if (WeaponInvenItem)
+    if (IsValid(WeaponInvenItem))
     {
         bool ItemAddResult = false;
         ItemAddResult = InvenComp->TryAddItem(WeaponInvenItem);

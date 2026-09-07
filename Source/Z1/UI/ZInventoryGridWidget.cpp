@@ -14,7 +14,7 @@
 #include "Items/ZInventoryItem.h"
 #include "UI/ZInventoryItemWidget.h"
 #include "UI/ZEquipmentGridWidget.h"
-#include <Blueprint/WidgetLayoutLibrary.h>
+//#include <Blueprint/WidgetLayoutLibrary.h>
 
 DEFINE_LOG_CATEGORY(LogZGridWidget);
 
@@ -34,17 +34,16 @@ void UZInventoryGridWidget::InitializeWidget(const TObjectPtr<UZSpacialInventory
 			CanvasSlot->SetSize(NewSize);
 			CreateLineSegments();
 			RefreshGrid();
-			InventoryComponent->OnInventoryChanged.AddDynamic(this, &ThisClass::RefreshGrid);
+			InventoryComponent->OnInventoryChanged.AddUniqueDynamic(this, &ThisClass::RefreshGrid);
 		}
 	}
 
 	PrevItemDropPosition = FIntPoint::ZeroValue;
-	InventoryItemWidgetMap.Empty();
 }
 
 void UZInventoryGridWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
-
+	Super::NativeTick(MyGeometry, InDeltaTime);
 }
 
 bool UZInventoryGridWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent,
@@ -69,6 +68,7 @@ void UZInventoryGridWidget::CreateLineSegments()
 		return;
 	}
 
+	GridLines.Reset();
 	GridLines.Reserve(ColumnSize + RowSize);
 
 	// Vertical Lines
@@ -152,8 +152,13 @@ void UZInventoryGridWidget::RefreshGrid()
 	auto ItemMap = InventoryComponent->GetInventoryItems();
 	for (auto& Item : ItemMap)
 	{
+		if (SpacialInventoryWidget->DraggedItemWidget &&
+			SpacialInventoryWidget->DraggedItemWidget->GetInventoryItem() == Item.Key)
+		{
+			continue;
+		}
 		UZInventoryItemWidget* ItemWidget = CreateWidget<UZInventoryItemWidget>(GetOwningPlayer(), InventoryItemWidgetClass);
-		if (ItemWidget)
+		if (IsValid(ItemWidget))
 		{
 			//SpacialInventoryWidget
 			ItemWidget->InitializeItemWidget(this, Item.Key);
@@ -164,115 +169,61 @@ void UZInventoryGridWidget::RefreshGrid()
 				ItemCanvasPanel->SetPosition(Item.Value * TileSize);
 			}
 
-			InventoryItemWidgetMap.Add(FIntPoint(Item.Value.X, Item.Value.Y), ItemWidget);
+			InventoryItemWidgetMap.Add(Item.Value, ItemWidget);
 		}
 	}
 }
 
-bool UZInventoryGridWidget::IsItemDropHighlightOutOfBounds(const FIntPoint& ItemDropPosition, const FVector2D& ItemSize)
+bool UZInventoryGridWidget::IsItemDropHighlightOutOfBounds(const FIntPoint& ItemDropPosition, const FIntPoint& ItemSize)
 {
-	FIntPoint FGridSize = FIntPoint(FMath::TruncToInt(GridSize.X), FMath::TruncToInt(GridSize.Y));
-	return (ItemDropPosition.X < 0 || ItemDropPosition.X + ItemSize.X > FGridSize.X ||
-		ItemDropPosition.Y < 0 || ItemDropPosition.Y + ItemSize.Y > FGridSize.Y);
+	return (ItemDropPosition.X < 0 || ItemDropPosition.X + ItemSize.X > GridSize.X ||
+		ItemDropPosition.Y < 0 || ItemDropPosition.Y + ItemSize.Y > GridSize.Y);
 }
 
-void UZInventoryGridWidget::UpdateInventoryItemWidgetMap(UZInventoryItemWidget* ItemWidget, const FIntPoint& OldPosition, const FIntPoint& NewPosition)
+bool UZInventoryGridWidget::HandleSwap(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem, const FVector2D& InMousePosition, const FIntPoint& ItemDropPos)
 {
-	// 이전 위치에서 위젯을 제거
-	if (InventoryItemWidgetMap.Contains(OldPosition))
+	UZInventoryItem* ItemInGrid = InventoryComponent->GetItemAtPosition(DroppedItem, ItemDropPos, DroppedItem->GetGridSize());
+	if (!IsValid(ItemInGrid))
 	{
-		InventoryItemWidgetMap.Remove(OldPosition);
+		return false;
 	}
-
-	// 새로운 위치에 위젯을 추가
-	InventoryItemWidgetMap.Add(NewPosition, ItemWidget);
-}
-
-void UZInventoryGridWidget::HandleOutOfBoundsDrop(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem)
-{
-	// 1) 위젯 Viewport에서 제거
-	if (DroppedWidget->IsInViewport())
-	{
-		DroppedWidget->RemoveFromParent();
-	}
-
-	// 2) 인벤토리에서 제거
-	InventoryComponent->RemoveItemByPointer(DroppedItem);
-
-	// 월드에 아이템 스폰
-	if (SpacialInventoryWidget)
-	{
-		SpacialInventoryWidget->HandleDropItem(DroppedWidget);
-	}
-}
-
-void UZInventoryGridWidget::HandleSwap(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem, const FVector2D& InMousePosition, const FIntPoint& ItemDropPos)
-{
-	// 1) 겹쳐 있는 실제 아이템 가져오기
-	TObjectPtr<UZInventoryItem> ItemInGrid =
-		InventoryComponent->GetItemAtPosition(DroppedItem, ItemDropPos, DroppedItem->GetGridSize());
-
-	if (!ItemInGrid)
-	{
-		// 혹은 ItemCount == 1인데 실제로는 못 찾았다면 로직 오류
-		return;
-	}
-
-	// 2) 아이템 위치 파악 & 대응되는 UZInventoryItemWidget 찾기
-	FIntPoint FoundItemPos = InventoryComponent->FindItemPosition(ItemInGrid);
+	const FIntPoint FoundItemPos = InventoryComponent->FindItemPosition(ItemInGrid);
 	UZInventoryItemWidget* WidgetInGrid = InventoryItemWidgetMap.FindRef(FoundItemPos);
-	if (!WidgetInGrid)
+	if (!IsValid(WidgetInGrid))
 	{
-		// 아무것도 안 함, 혹은 LOG
-		return;
+		return false;
 	}
-
-	// 3) 실제 인벤토리 컴포넌트에 Swap
-	InventoryComponent->SwapItems(ItemInGrid, DroppedItem, ItemDropPos);
-
-	// 4) 드롭된 위젯: Viewport에서 제거한 뒤, 그리드 패널에 붙이기
-	if (DroppedWidget->IsInViewport())
-	{
-		DroppedWidget->RemoveFromParent();
-	}
-
-	if (UCanvasPanelSlot* GridPanel = Cast<UCanvasPanelSlot>(GridCanvasPanel->AddChild(DroppedWidget)))
-	{
-		GridPanel->SetAutoSize(true);
-		GridPanel->SetPosition(ItemDropPos * TileSize);
-	}
-
+	// Detach the displaced widget before the synchronous grid refresh.
 	WidgetInGrid->StartDragging(InMousePosition);
-
-	// 6) 맵 갱신
-	FIntPoint PrevItemPosition = InventoryComponent->FindItemPosition(DroppedItem);
-	UpdateInventoryItemWidgetMap(DroppedWidget, PrevItemPosition, ItemDropPos);
-
-	// 7) 그리드 리프레시
-	RefreshGrid();
-}
-
-void UZInventoryGridWidget::HandleAddItem(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem, const FIntPoint& ItemDropPos)
-{
-	if (UCanvasPanelSlot* GridPanel = Cast<UCanvasPanelSlot>(GridCanvasPanel.Get()->AddChild(DroppedWidget)))
-	{
-		GridPanel->SetAutoSize(true);
-		GridPanel->SetPosition(ItemDropPos * TileSize);
-	}
-
-	InventoryComponent->RemoveItemByPointer(DroppedItem);
-
+	DroppedWidget->RemoveFromParent();
+	InventoryComponent->SwapItems(ItemInGrid, DroppedItem, ItemDropPos);
 	bIsHighlighted = false;
-
-	InventoryComponent->AddItem(DroppedItem, ItemDropPos);
-
-	DroppedWidget->SetParentWidget(this);
-
-	FIntPoint PrevItemPosition = InventoryComponent->FindItemPosition(DroppedItem);
-	UpdateInventoryItemWidgetMap(DroppedWidget, PrevItemPosition, ItemDropPos);
+	return true;
 }
 
-FIntPoint UZInventoryGridWidget::CalculateDropPosition(const FVector2D& InMousePosition, const FVector2D& ItemGridSize, bool bCorrectionApplied)
+bool UZInventoryGridWidget::HandleAddItem(UZInventoryItemWidget* DroppedWidget, TObjectPtr<UZInventoryItem> DroppedItem, const FIntPoint& ItemDropPos)
+{
+	const FIntPoint OriginalPosition = InventoryComponent->FindItemPosition(DroppedItem);
+	if (OriginalPosition.X >= 0)
+	{
+		InventoryComponent->RemoveItemByGridPosition(OriginalPosition, false);
+	}
+	if (!InventoryComponent->AddItem(DroppedItem, ItemDropPos, false))
+	{
+		if (OriginalPosition.X >= 0)
+		{
+			InventoryComponent->AddItem(DroppedItem, OriginalPosition, false);
+		}
+		return false;
+	}
+	DroppedWidget->RemoveFromParent();
+	SpacialInventoryWidget->DraggedItemWidget = nullptr;
+	bIsHighlighted = false;
+	InventoryComponent->OnInventoryChanged.Broadcast();
+	return true;
+}
+
+FIntPoint UZInventoryGridWidget::CalculateDropPosition(const FVector2D& InMousePosition, const FIntPoint& ItemGridSize, bool bCorrectionApplied)
 {
 	// 1) 마우스가 그리드 상 몇 번째 타일에 있는지 구하기
 	const int32 MouseTileX = FMath::FloorToInt(InMousePosition.X / TileSize);
@@ -285,8 +236,10 @@ FIntPoint UZInventoryGridWidget::CalculateDropPosition(const FVector2D& InMouseP
 	// 3) 아이템을 "마우스 중심에 놓기" 위한 기본 계산
 	//    (예) 3×2 아이템이라면 아이템의 절반은 (1,1)로 보고,
 	//    마우스가 중앙쯤이도록 하기 위해 좌상단을 (MouseTile - (1,1))로 계산
-	const int32 HalfWidth = FMath::CeilToInt(ItemGridSize.X * 0.5f);
-	const int32 HalfHeight = FMath::CeilToInt(ItemGridSize.Y * 0.5f);
+	//    1×1처럼 홀수 크기 아이템은 CeilToInt를 쓰면 항상 한 칸 위/왼쪽으로 밀려서
+	//    계산되어(예: 1의 절반을 1로 취급) 클릭한 자리와 다른 칸으로 어긋난다.
+	const int32 HalfWidth = FMath::FloorToInt(ItemGridSize.X * 0.5f);
+	const int32 HalfHeight = FMath::FloorToInt(ItemGridSize.Y * 0.5f);
 
 	FIntPoint ItemDropPosition(MouseTileX - HalfWidth, MouseTileY - HalfHeight);
 
@@ -309,67 +262,70 @@ FIntPoint UZInventoryGridWidget::CalculateDropPosition(const FVector2D& InMouseP
 
 bool UZInventoryGridWidget::HandleDropItem(UZInventoryItemWidget* DroppedWidget, const FVector2D& InMousePosition)
 {
-	if (!DroppedWidget)
+	if (!IsValid(DroppedWidget))
 	{
 		return false;
 	}
 
 	TObjectPtr<UZInventoryItem> DroppedItem = DroppedWidget->GetInventoryItem();
-	if (!DroppedItem)
+	if (!IsValid(DroppedItem))
 	{
 		return false;
 	}
 	
 	TObjectPtr<UZEquipmentGridWidget> EquipmentGridWidget = SpacialInventoryWidget.Get()->GetEquipmentGridWidget();
 
-	FGeometry EquipmentGridWidgetGeometry = EquipmentGridWidget.Get()->GetCachedGeometry();
-	FGeometry InventoryGridGeometry = GetCachedGeometry();
-	bool IsInEquipWidget = EquipmentGridWidgetGeometry.IsUnderLocation(InMousePosition);
+	FGeometry EquipmentGridWidgetGeometry = IsValid(EquipmentGridWidget) ? EquipmentGridWidget->GetCachedGeometry() : FGeometry();
+	FGeometry InventoryGridGeometry = GridCanvasPanel->GetCachedGeometry();
+	bool IsInEquipWidget = IsValid(EquipmentGridWidget) && EquipmentGridWidgetGeometry.IsUnderLocation(InMousePosition);
 	bool IsInGridWidget = InventoryGridGeometry.IsUnderLocation(InMousePosition);
 
 	//TODO
 	if (IsInEquipWidget && !IsInGridWidget)
 	{
-		UE_LOG(LogZGridWidget, Warning, TEXT("Mouse is over EquipInventoryWidge!"));
+		UE_LOG(LogZGridWidget, Warning, TEXT("Mouse is over EquipInventoryWidget!"));
 		return false;
 	}
 	if (!IsInEquipWidget && !IsInGridWidget)
 	{
-		UE_LOG(LogZGridWidget, Warning, TEXT("Mouse is over  SpacialInventoryWidge!"));
-		HandleOutOfBoundsDrop(DroppedWidget, DroppedItem);
+		UE_LOG(LogZGridWidget, Warning, TEXT("Mouse is over SpacialInventoryWidget!"));
 		return false;
 	}
 
 	// 2) 실제 인벤토리 그리드 상 마우스 좌표 계산
 	
 	const FVector2D LocalMousePos = InventoryGridGeometry.AbsoluteToLocal(InMousePosition);
-	FVector2D ItemGridSize = DroppedItem->GetGridSize();
+	FIntPoint ItemGridSize = DroppedItem->GetGridSize();
 	FIntPoint ItemDropPosition = CalculateDropPosition(LocalMousePos, ItemGridSize);
 
-	ItemDropPosition.X = FMath::Clamp(ItemDropPosition.X, 0, static_cast<int32>(GridSize.X));
-	ItemDropPosition.Y = FMath::Clamp(ItemDropPosition.Y, 0, static_cast<int32>(GridSize.Y));
+	ItemDropPosition.X = FMath::Clamp(ItemDropPosition.X, 0, GridSize.X);
+	ItemDropPosition.Y = FMath::Clamp(ItemDropPosition.Y, 0, GridSize.Y);
 
-	// 2개 이상인 경우 : 아무일도 일어나지 않음
+	// 2개 이상이거나(여러 아이템과 겹침) 경계를 벗어난 경우(-1) : 배치를 거부
 	// 1개인 경우 : Swap
 	// 0인 경우 : Add
 	int32 ItemCount = InventoryComponent->GetItemCountAtPosition(DroppedItem, ItemDropPosition, ItemGridSize);
 	if (ItemCount == 1) // Swap
 	{
-		HandleSwap(DroppedWidget, DroppedItem, InMousePosition, ItemDropPosition);
+		return HandleSwap(DroppedWidget, DroppedItem, InMousePosition, ItemDropPosition);
 	}
 	else if (ItemCount == 0)
 	{
-		HandleAddItem(DroppedWidget, DroppedItem, ItemDropPosition);
+		return HandleAddItem(DroppedWidget, DroppedItem, ItemDropPosition);
 	}
 
-	return true;
+	// 배치를 거부한다. false를 반환하면 StopDragging이 실패로 처리해서
+	// bIsDragging이 계속 true로 남고, 아이템은 계속 마우스에 붙어 따라다닌다.
+	// (여기서 true를 반환하면 위젯이 아무 데도 재배치되지 않은 채
+	//  "드래그 종료"로 처리되어 인벤토리에서 사라진 것처럼 보이는 버그가 있었다.)
+	return false;
 }
 
-void UZInventoryGridWidget::SetTileColorInGrid(const FVector2D& StartLocation, const FVector2D& ItemSize, const FColor& Color)
+void UZInventoryGridWidget::SetTileColorInGrid(const FVector2D& StartLocation, const FIntPoint& ItemSize, const FColor& Color)
 {
-	FVector2D MousePosition = this->GetCachedGeometry().AbsoluteToLocal(StartLocation);
+	FVector2D MousePosition = GridCanvasPanel->GetCachedGeometry().AbsoluteToLocal(StartLocation);
 	//TODO : 좀 더 정확하게 하려면 타일을 4등분, 지금 좌우만 나누고 상하를 안나눠서 제대로 인식안됨
-	FIntPoint ItemDropPosition = CalculateDropPosition(MousePosition, ItemSize, true);
+	FIntPoint ItemDropPosition = CalculateDropPosition(MousePosition, ItemSize);
 
 	if (IsItemDropHighlightOutOfBounds(ItemDropPosition, ItemSize))
 	{

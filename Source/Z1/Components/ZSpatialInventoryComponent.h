@@ -18,7 +18,7 @@ struct FInventoryUpdate
 
 	FInventoryUpdate() {}
 
-	FInventoryUpdate(FVector2D StartPosition, FVector2D Size, TObjectPtr<UZInventoryItem> Item, bool bAdded)
+	FInventoryUpdate(FIntPoint StartPosition, FIntPoint Size, TObjectPtr<UZInventoryItem> Item, bool bAdded)
 	{
 		this->StartPosition = StartPosition;
 		this->Size = Size;
@@ -27,10 +27,10 @@ struct FInventoryUpdate
 	}
 
 	UPROPERTY(BlueprintReadWrite)
-	FVector2D StartPosition;
+	FIntPoint StartPosition;
 
 	UPROPERTY(BlueprintReadWrite)
-	FVector2D Size;
+	FIntPoint Size;
 
 	UPROPERTY(BlueprintReadWrite)
 	TObjectPtr<UZInventoryItem> Item;
@@ -48,17 +48,17 @@ public:
 	// Sets default values for this component's properties
 	UZSpatialInventoryComponent();
 
-	FORCEINLINE FVector2D GetGridSize() const { return GridSize; }
+	FORCEINLINE FIntPoint GetGridSize() const { return GridSize; }
 
 	//Item and Item Position in grid
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	TMap<UZInventoryItem*, FVector2D> GetInventoryItems() const;
+	TMap<UZInventoryItem*, FIntPoint> GetInventoryItems() const;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// 아이템 추가
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool AddItem(UZInventoryItem* NewItem, FVector2D StartPosition, bool bBroadcast = true);
+	bool AddItem(UZInventoryItem* NewItem, FIntPoint StartPosition, bool bBroadcast = true);
 
 	// 빈공간 찾아서 추가
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
@@ -66,19 +66,19 @@ public:
 
 	// 아이템 제거
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void RemoveItemByGridPosition(FVector2D StartPosition, bool bBroadcast = true);
+	void RemoveItemByGridPosition(FIntPoint StartPosition, bool bBroadcast = true);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void RemoveItemByPointer(UZInventoryItem* ItemToRemove);
 
 	UFUNCTION(BlueprintCallable, Category = "Grid")
-	UZInventoryItem* GetItemFromGrid(FVector2D Position) const;
+	UZInventoryItem* GetItemFromGrid(FIntPoint Position) const;
 
 	//ItemDropPosition 포지션에 아이템이 한 개 있는지, 공간이 충분한지 확인
-	int32 GetItemCountAtPosition(UZInventoryItem* Item, FVector2D ItemPosition, FVector2D Size) const;
+	int32 GetItemCountAtPosition(UZInventoryItem* Item, FIntPoint ItemPosition, FIntPoint Size) const;
 
 	// 자기 자신을 제외한 다른 아이템을 가져온다.
-	TObjectPtr<UZInventoryItem> GetItemAtPosition(UZInventoryItem* Item, FVector2D ItemPosition, FVector2D ItemSize) const;
+	TObjectPtr<UZInventoryItem> GetItemAtPosition(UZInventoryItem* Item, FIntPoint ItemPosition, FIntPoint ItemSize) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool IsItemDropPositionOutOfBounds(const FIntPoint& ItemDropPosition) const;
@@ -96,20 +96,28 @@ protected:
 	virtual void BeginPlay() override;
 
 	UFUNCTION(BlueprintCallable, Category = "Grid")
-	bool CanPlaceItem(FVector2D StartPosition, FVector2D Size) const;
+	bool CanPlaceItem(FIntPoint StartPosition, FIntPoint Size) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Grid")
-	void SetCellsOccupied(FVector2D StartPosition, FVector2D Size, bool bOccupied);
+	void SetCellsOccupied(FIntPoint StartPosition, FIntPoint Size, bool bOccupied);
+
+	// 좌표(X, Y)가 그리드 범위 안에 있는지 확인
+	bool IsPositionInBounds(int32 X, int32 Y) const;
+
+	// StartPosition에서 Size만큼의 사각 영역이 그리드 범위 안에 있는지 확인
+	bool IsRegionInBounds(FIntPoint StartPosition, FIntPoint Size) const;
+
+	// 두 아이템이 같은 종류(같은 ItemID)인지 확인. 어느 한쪽이라도 유효하지 않으면 false.
+	bool IsSameItemType(const UZInventoryItem* A, const UZInventoryItem* B) const;
 
 	// TODO : IndexToTile
-	//FVector2D IndexToPosition(int32 Index) const;
 	FIntPoint IndexToPosition(int32 Index) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Grid")
 	int32 GetCellIndex(int32 X, int32 Y) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Grid")
-	void InitializeGrid(FVector2D InDimensions);
+	void InitializeGrid(FIntPoint InDimensions);
 
 	/*UFUNCTION(NetMulticast, Reliable)
 	void Multicast_InventoryUpdate(const FInventoryUpdate& Update);*/
@@ -125,5 +133,5 @@ protected:
 
 	// Columns, Rows
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid", meta = (AllowPrivateAccess = "true"))
-	FVector2D GridSize;
+	FIntPoint GridSize;
 };

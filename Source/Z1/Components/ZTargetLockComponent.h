@@ -51,8 +51,9 @@ protected:
 	float LockRange;
 
 	// 락온 허용 시야각 (플레이어의 전방 기준, 예: 45도)
+	// 중앙을 기준으로 ±(FOVAngle / 2) 범위 내에 있는 적만 감지
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Lock", meta = (AllowPrivateAccess = "true"))
-	float LockAngle;
+	float HalfLockAngle;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Lock", meta = (AllowPrivateAccess = "true"))
 	float InterpSpeed;

@@ -1,427 +1,745 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "ZInteractComponent.h"
 
 #include "DrawDebugHelpers.h"
-#include "Z1Character.h"
+#include "GameFramework/GameStateBase.h"
 #include "Interfaces/ZInteractable.h"
 #include "Interfaces/ZPickable.h"
-#include "UI/ZInteractWidget.h"
-#include "UI/ZWorldItemWidget.h"
 #include "Items/ZWorldItem.h"
-#include "Kismet/GameplayStatics.h"
-#include "UI/WorldItemWidgetComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
+#include "UI/WorldItemWidgetComponent.h"
+#include "Z1Character.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogZInteractionComp, All, All)
+DEFINE_LOG_CATEGORY_STATIC(LogZInteractionComp, Log, All);
 
-bool bDebugDraw = false; 
-static TAutoConsoleVariable<bool> CVarDebugDrawInteraction(
-	TEXT("z.InteractionDebugDraw"),
-	bDebugDraw,
-	TEXT("Enable Debug Lines for Interact Component."),
-	ECVF_Default // Cheat
-);
+static TAutoConsoleVariable<bool>
+CVarDebugDrawInteraction(TEXT("z.InteractionDebugDraw"), false,
+                         TEXT("Draw interaction traces."), ECVF_Cheat);
 
 UZInteractComponent::UZInteractComponent()
 {
-	PrimaryComponentTick.bCanEverTick = true;
+	/*
+	 * 컴포넌트 RPC와 InteractionState 복제를 위해 필요합니다.
+	 * 소유 Character도 bReplicates가 true여야 합니다.
+	 */
+	SetIsReplicatedByDefault(true);
 
-	TraceDistance = 1000.f;
-	TraceRadius = 30.f;
-	//TODO
-	//CollisionChannel = ;
+	PrimaryComponentTick.bCanEverTick = true;
 }
 
 void UZInteractComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	
 }
 
-void UZInteractComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void UZInteractComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME_CONDITION(UZInteractComponent, InteractionState,COND_OwnerOnly);
+}
+
+void UZInteractComponent::TickComponent(float DeltaTime, ELevelTick TickType,FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	const bool bIsInteractingOnServer = GetOwner()->HasAuthority() && IsInteracting();
-
-	//Multiplayer CODE
-	/*if ((!GetOwner()->HasAuthority() || bIsInteractingOnServer) && GetWorld()->TimeSince(InteractionData.LastInteractionCheckTime) > InteractionCheckFrequency)
+	/*
+	 * 상호작용 탐색은 소유 클라이언트에서만 수행합니다.
+	 *
+	 * Dedicated Server:
+	 *   플레이어 Pawn은 로컬 컨트롤이 아니므로 실행하지 않습니다.
+	 *
+	 * Client:
+	 *   자신의 Pawn만 실행합니다.
+	 *
+	 * Listen Server:
+	 *   호스트의 로컬 Pawn은 실행합니다.
+	 */
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!IsValid(OwnerPawn) || !OwnerPawn->IsLocallyControlled())
 	{
-		PerformInteractionCheck();
-	}*/
-
-	// 기존 FocusedActor에 대한 해제 처리 함수
-	// 새로운 FocusedActor 탐색
-	// 기존 FocusedActor 해제 (라인 제거, 위젯 제거 등)
-	// 새로운 FocusedActor 설정 (라인 표시, 위젯 추가 등)
-	// UI update
+		return;
+	}
 
 	AZWorldItem* CurrentWorldItem = GetCurrentWorldItem();
 	if (IsValid(CurrentWorldItem))
 	{
 		if (IsActorOutOfRange(CurrentWorldItem) || !IsActorInSight(CurrentWorldItem))
 		{
-			// 기존 FocusedActor에 대한 해제 처리 함수
 			CouldntFindInteractable();
 		}
 	}
-	if (GetWorld()->TimeSince(InteractionData.LastInteractionCheckTime) > InteractionCheckFrequency)
+
+	/*
+	 * 버튼을 누르고 있는 동안에는 새로운 대상을 찾지 않습니다.
+	 */
+	if (LocalInteractionData.bInteractHeld)
+	{
+		return;
+	}
+
+	const float TimeSinceLastCheck = GetWorld()->TimeSince(LocalInteractionData.LastInteractionCheckTime);
+	if (TimeSinceLastCheck >= InteractionCheckFrequency)
 	{
 		PerformInteractionCheck();
 	}
 }
 
-FInteractionResult* UZInteractComponent::FindInteractableActor()
-{
-	FInteractionResult* Result = new FInteractionResult();
-
-	FCollisionObjectQueryParams ObjectQueryParams;
-	ObjectQueryParams.AddObjectTypesToQuery(CollisionChannel);
-
-	AZ1Character* MyOwner = Cast<AZ1Character>(GetOwner());
-	FVector EyeLocation;
-	FRotator EyeRotation;
-	MyOwner->GetActorEyesViewPoint(EyeLocation, EyeRotation);
-	FVector End = EyeLocation + (EyeRotation.Vector() * TraceDistance);
-
-	TArray<FHitResult> Hits;
-	FCollisionShape Shape;
-	Shape.SetSphere(TraceRadius);
-
-	const bool bBlockingHit = GetWorld()->SweepMultiByObjectType(Hits, EyeLocation, End, FQuat::Identity, ObjectQueryParams, Shape);
-
-	for (FHitResult& Hit : Hits)
-	{
-		AActor* HitActor = Hit.GetActor();
-		if (IsValid(HitActor))
-		{
-			if (HitActor->Implements<UZPickable>())
-			{
-				Result->InventoryInterface = TScriptInterface<UZPickable>(HitActor);
-				Result->InteractionType = EInteractionType::Pickup;
-			}
-			if (HitActor->Implements<UZInteractable>())
-			{
-				Result->ItemInteractInterface = TScriptInterface<UZInteractable>(HitActor);
-
-				// 만약 이미 주울 수 있는 아이템으로 판별됐다면, InteractionType을 다르게 표시
-				if (Result->InteractionType == EInteractionType::Pickup)
-				{
-					Result->InteractionType = EInteractionType::Both; // 상호작용과 획득 모두 해당됨
-				}
-				else
-				{
-					Result->InteractionType = EInteractionType::Interact; // 상호작용 가능한 Prop
-				}
-			}
-
-			if (Result->InteractionType != EInteractionType::None)
-			{
-				Result->Actor = HitActor;
-				return Result; // 첫 번째로 찾은 상호작용 대상을 반환
-			}
-			Result->Actor = HitActor;
-		}
-	}
-
-	if (CVarDebugDrawInteraction.GetValueOnGameThread())
-	{
-		DrawDebugInfo(EyeLocation, End, Hits, Result != nullptr);
-	}
-
-	return Result;
-}
-
-void UZInteractComponent::DrawDebugInfo(const FVector& Start, const FVector& End, const TArray<FHitResult>& Hits, bool bBlockingHit) const
-{
-	//bool bDebugDraw = CVarDebugDrawInteraction.GetValueOnGameThread();
-	if (!bDebugDraw) return;
-
-	const FColor LineColor = bBlockingHit ? FColor::Green : FColor::Red;
-	for (const FHitResult& Hit : Hits)
-	{
-		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, TraceRadius, 32, LineColor, false, 1.0f);
-	}
-
-	DrawDebugLine(GetWorld(), Start, End, LineColor, false, 1.0f, 0, 1.0f);
-}
-
-void UZInteractComponent::BeginInteract()
-{
-	if (!GetOwner()->HasAuthority())
-	{
-		ServerBeginInteract();
-	}
-
-	InteractionData.bInteractHeld = true;
-
-	if (UWorldItemWidgetComponent* ItemComponent = GetCurrentWorldItemWidgetComponent())
-	{
-		AZ1Character* Character = Cast<AZ1Character>(GetOwner());
-		if (!Character) return;
-
-		ItemComponent->BeginInteract(Character);
-
-		if (FMath::IsNearlyZero(ItemComponent->InteractionTime))
-		{
-			Interact();
-		}
-		else //hold E key to interact
-		{
-			//GetWorld()->GetTimerManager().SetTimer(TimerHandle_Interact, this, &UWorldItemWidgetComponent::Interact, ItemComponent->InteractionTime, false);
-			
-			FTimerDelegate TimerDelegate;
-			TimerDelegate.BindUObject(GetCurrentWorldItemWidgetComponent(), &UWorldItemWidgetComponent::Interact, Character);
-
-			GetWorld()->GetTimerManager().SetTimer(TimerHandle_Interact, TimerDelegate, ItemComponent->InteractionTime, false);
-		}
-	}
-}
-
-void UZInteractComponent::EndInteract()
-{
-	if (!GetOwner()->HasAuthority())
-	{
-		ServerEndInteract();
-	}
-
-	InteractionData.bInteractHeld = false;
-
-	GetWorld()->GetTimerManager().ClearTimer(TimerHandle_Interact);
-
-	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
-	if (!Character) return;
-
-	if (UWorldItemWidgetComponent* Interactable = GetCurrentWorldItemWidgetComponent())
-	{
-		Interactable->EndInteract(Character);
-	}
-}
-
-void UZInteractComponent::Interact()
-{
-	GetWorld()->GetTimerManager().ClearTimer(TimerHandle_Interact);
-
-	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
-	if (!Character) return;
-
-	if (UWorldItemWidgetComponent* Interactable = GetCurrentWorldItemWidgetComponent())
-	{
-		Interactable->Interact(Character);
-	}
-}
-
-void UZInteractComponent::ServerBeginInteract_Implementation()
-{
-	BeginInteract();
-}
-
-bool UZInteractComponent::ServerBeginInteract_Validate()
-{
-	return true;
-}
-
-void UZInteractComponent::ServerEndInteract_Implementation()
-{
-	EndInteract();
-}
-
-bool UZInteractComponent::ServerEndInteract_Validate()
-{
-	return true;
-}
-
-bool UZInteractComponent::IsInteracting() const
-{
-	return GetWorld()->GetTimerManager().IsTimerActive(TimerHandle_Interact);
-}
-
-float UZInteractComponent::GetRemainingInteractionTime() const
-{
-	return GetWorld()->GetTimerManager().GetTimerRemaining(TimerHandle_Interact);
-}
-
 void UZInteractComponent::PerformInteractionCheck()
 {
+	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+	if (!IsValid(Character) || !Character->IsLocallyControlled())
+	{
+		return;
+	}
+
+	LocalInteractionData.LastInteractionCheckTime = GetWorld()->GetTimeSeconds();
+
+	FVector EyeLocation;
+	FRotator EyeRotation;
+
+	Character->GetActorEyesViewPoint(EyeLocation, EyeRotation);
+
+	const FVector TraceStart = EyeLocation;
+	const FVector TraceEnd = TraceStart + EyeRotation.Vector() * TraceDistance;
+
 	FCollisionObjectQueryParams ObjectQueryParams;
 	ObjectQueryParams.AddObjectTypesToQuery(CollisionChannel);
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(LocalInteractionSweep),false, Character);
 
-	AZ1Character* MyOwner = Cast<AZ1Character>(GetOwner());
-
-	InteractionData.LastInteractionCheckTime = GetWorld()->GetTimeSeconds();
-
-	FVector EyesLoc;
-	FRotator EyesRot;
-	MyOwner->GetActorEyesViewPoint(EyesLoc, EyesRot);
-
-	FVector TraceStart = EyesLoc;
-	TraceStart.X += 30;
-	FVector TraceEnd = (EyesRot.Vector() * TraceDistance) + TraceStart;
-
-	float Radius = 30.f;
+	FCollisionShape CollisionShape;
+	CollisionShape.SetSphere(TraceRadius);
 
 	TArray<FHitResult> Hits;
-	FCollisionShape Shape;
-	Shape.SetSphere(Radius);
 
-	bool bBlockingHit = GetWorld()->SweepMultiByObjectType(Hits, TraceStart, TraceEnd, FQuat::Identity, ObjectQueryParams, Shape);
+	const bool bAnyHit = GetWorld()->SweepMultiByObjectType(Hits, TraceStart, TraceEnd, FQuat::Identity, ObjectQueryParams, CollisionShape, QueryParams);
 
-	FColor LineColor = bBlockingHit ? FColor::Green : FColor::Red;
-	for (FHitResult& Hit : Hits)
+	AZWorldItem* BestWorldItem = nullptr;
+	UWorldItemWidgetComponent* BestItemComponent = nullptr;
+
+	float BestDistanceSquared = TNumericLimits<float>::Max();
+
+	for (const FHitResult& Hit : Hits)
 	{
-		AZWorldItem* HitActor = Cast<AZWorldItem>(Hit.GetActor());
-		if (IsValid(HitActor))
-		{
-			if (UWorldItemWidgetComponent* WorldItemComponent = Cast<UWorldItemWidgetComponent>(HitActor->GetComponentByClass(UWorldItemWidgetComponent::StaticClass())))
-			{
-				float Distance = (TraceStart - Hit.ImpactPoint).Size();
+		AZWorldItem* HitWorldItem = Cast<AZWorldItem>(Hit.GetActor());
 
-				if (WorldItemComponent != GetCurrentWorldItemWidgetComponent() && Distance <= WorldItemComponent->InteractionDistance)
-				{
-					if (CVarDebugDrawInteraction.GetValueOnGameThread())
-					{
-						DrawDebugSphere(GetWorld(), Hit.ImpactPoint, Radius, 32, LineColor, false, 2.0f);
-					}
-					FoundNewInteractable(WorldItemComponent, HitActor);
-				}
-				else if (Distance > WorldItemComponent->InteractionDistance && GetCurrentWorldItemWidgetComponent())
-				{
-					CouldntFindInteractable();
-				}
-				//return;
-			}
-			else
-			{
-				UE_LOG(LogZInteractionComp, Warning, TEXT("No UWorldItemWidgetComponent found on actor %s"), *HitActor->GetName());
-			}
+		if (!IsValid(HitWorldItem))
+		{
+			continue;
 		}
 
-	}
-	if (CVarDebugDrawInteraction.GetValueOnGameThread())
-	{
-		DrawDebugLine(GetWorld(), TraceStart, TraceEnd, LineColor, false, 2.0f, 0, 2.0f);
+		/*
+		 * 상호작용 또는 획득 인터페이스 중 하나는
+		 * 구현하고 있어야 합니다.
+		 */
+		if (!HitWorldItem->Implements<UZInteractable>() && !HitWorldItem->Implements<UZPickable>())
+		{
+			continue;
+		}
+
+		UWorldItemWidgetComponent* ItemComponent =
+			HitWorldItem->FindComponentByClass<UWorldItemWidgetComponent>();
+
+		if (!IsValid(ItemComponent))
+		{
+			UE_LOG(LogZInteractionComp, Warning, TEXT("No UWorldItemWidgetComponent on %s"), *HitWorldItem->GetName());
+			continue;
+		}
+		
+		const FVector TargetPoint = Hit.ImpactPoint.IsNearlyZero() ? HitWorldItem->GetActorLocation() : static_cast<FVector>(Hit.ImpactPoint);
+
+		const float DistanceSquared = FVector::DistSquared(TraceStart, TargetPoint);
+
+		const float AllowedDistance = FMath::Min(TraceDistance, ItemComponent->InteractionDistance);
+
+		if (DistanceSquared > FMath::Square(AllowedDistance))
+		{
+			continue;
+		}
+
+		if (DistanceSquared < BestDistanceSquared)
+		{
+			BestDistanceSquared = DistanceSquared;
+			BestWorldItem = HitWorldItem;
+			BestItemComponent = ItemComponent;
+		}
 	}
 
-	//CouldntFindInteractable();
+	if (IsValid(BestWorldItem) && IsValid(BestItemComponent))
+	{
+		if (BestWorldItem != GetCurrentWorldItem())
+		{
+			FoundNewInteractable(BestItemComponent, BestWorldItem);
+		}
+	}
+	else if (IsValid(GetCurrentWorldItem()))
+	{
+		CouldntFindInteractable();
+	}
+
+	DrawDebugInfo(TraceStart, TraceEnd, Hits, bAnyHit);
 }
 
-void UZInteractComponent::CouldntFindInteractable()
+void UZInteractComponent::FoundNewInteractable(
+	UWorldItemWidgetComponent* WorldItemWidgetComponent,
+	AZWorldItem* WorldItem)
 {
-	if (GetWorld()->GetTimerManager().IsTimerActive(TimerHandle_Interact))
+	if (!IsValid(WorldItemWidgetComponent) || !IsValid(WorldItem))
 	{
-		GetWorld()->GetTimerManager().ClearTimer(TimerHandle_Interact);
+		return;
 	}
 
-	if (UWorldItemWidgetComponent* Interactable = GetCurrentWorldItemWidgetComponent())
+	if (WorldItem == GetCurrentWorldItem())
 	{
-		if (AZ1Character* Character = Cast<AZ1Character>(GetOwner()))
-		{
-			if (IsValid(Interactable))
-			{
-				Interactable->EndFocus(Character);
-			}
-		}
-
-		if (InteractionData.bInteractHeld)
-		{
-			EndInteract();
-		}
+		return;
 	}
 
-	InteractionData.CurrentItemComponent = nullptr;
-	InteractionData.CurrentWorldItem = nullptr;
-}
-
-void UZInteractComponent::FoundNewInteractable(UWorldItemWidgetComponent* WorldItemWidgetComponent, AZWorldItem* WorldItem)
-{
-	UE_LOG(LogZInteractionComp, Display, TEXT("We found and interactable"));
-
-	EndInteract();
+	if (LocalInteractionData.bInteractHeld)
+	{
+		EndInteract();
+	}
 
 	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+
 	if (!IsValid(Character))
 	{
 		return;
 	}
 
-	if (UWorldItemWidgetComponent* PrevInteractable = GetCurrentWorldItemWidgetComponent())
+	UWorldItemWidgetComponent* PreviousComponent =
+		GetCurrentWorldItemWidgetComponent();
+
+	if (IsValid(PreviousComponent))
 	{
-		PrevInteractable->EndFocus(Character);
+		PreviousComponent->EndFocus(Character);
 	}
 
-	InteractionData.CurrentItemComponent = WorldItemWidgetComponent;
-	InteractionData.CurrentWorldItem = WorldItem;
+	LocalInteractionData.CurrentItemComponent = WorldItemWidgetComponent;
+
+	LocalInteractionData.CurrentWorldItem = WorldItem;
 
 	WorldItemWidgetComponent->BeginFocus(Character);
+
+	UE_LOG(LogZInteractionComp, Verbose, TEXT("Found interactable: %s"),
+	       *WorldItem->GetName());
 }
 
-bool UZInteractComponent::IsActorOutOfRange(AZWorldItem* WorldItem)
+void UZInteractComponent::CouldntFindInteractable()
 {
-	if (!IsValid(WorldItem))
-	{
-		return false;
-	}
-	FVector EyeLocation;
-	FRotator EyeRotation;
-	AZ1Character* MyOwner = Cast<AZ1Character>(GetOwner());
-	if (!IsValid(MyOwner))
-	{
-		return false;
-	}
-	MyOwner->GetActorEyesViewPoint(EyeLocation, EyeRotation);
+	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
 
-	FVector FocusedActorLocation = WorldItem->GetActorLocation();
-	float Distance = FVector::Dist(EyeLocation, FocusedActorLocation);
-	return Distance <= TraceDistance;
+	UWorldItemWidgetComponent* ItemComponent =
+		GetCurrentWorldItemWidgetComponent();
+
+	if (LocalInteractionData.bInteractHeld)
+	{
+		EndInteract();
+	}
+
+	if (IsValid(Character) && IsValid(ItemComponent))
+	{
+		ItemComponent->EndFocus(Character);
+	}
+
+	LocalInteractionData.CurrentItemComponent = nullptr;
+	LocalInteractionData.CurrentWorldItem = nullptr;
+	LocalInteractionData.bInteractHeld = false;
 }
 
-bool UZInteractComponent::IsActorInSight(AZWorldItem* WorldItem)
+void UZInteractComponent::BeginInteract()
 {
-	if (!IsValid(WorldItem))
+	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+	if (!IsValid(Character) || !Character->IsLocallyControlled())
 	{
-		return false;
-	}
-
-	// 1. 캐릭터의 시야 시작점(EyeLocation)과 방향(EyeRotation) 설정
-	FVector EyeLocation;
-	FRotator EyeRotation;
-	AZ1Character* MyOwner = Cast<AZ1Character>(GetOwner());
-	if (!IsValid(MyOwner)) 
-	{
-		return false;
-	}
-
-	// 2. FocusedActor와 캐릭터 시점 간의 방향 벡터 계산
-	MyOwner->GetActorEyesViewPoint(EyeLocation, EyeRotation);
-	FVector ForwardVector = EyeRotation.Vector(); // 캐릭터의 시야 방향 벡터
-	FVector ActorLocation = WorldItem->GetActorLocation();
-	FVector ToActor = (ActorLocation - EyeLocation).GetSafeNormal(); // 방향 벡터 정규화
-
-	// 3. 내적 계산: ForwardVector와 ToActor의 내적
-	float DotProduct = FVector::DotProduct(ForwardVector, ToActor);
-
-	// 4. 시야 각도 조건 설정
-	float SightThreshold = FMath::Cos(FMath::DegreesToRadians(TraceRadius));
-	// TraceRadius는 시야의 반각(도) - 예: 30도
-
-	// 5. 내적 결과가 시야 각도 조건을 만족하는지 확인
-	return DotProduct >= SightThreshold;
-}
-
-
-void UZInteractComponent::PrimaryInteract()
-{
-	if (!InteractionData.CurrentWorldItem)
-	{
-		FString DebugMsg = TEXT("No Focus Actor to Interact");
-		//TODO : LOG
 		return;
 	}
 
-	if (APawn* MyPawn = Cast<APawn>(GetOwner()))
+	/*
+	 * Enhanced Input의 Triggered 등에 잘못 연결됐을 경우
+	 * 프레임마다 요청하는 것을 방지합니다.
+	 */
+	if (LocalInteractionData.bInteractHeld)
 	{
-		IZInteractable::Execute_Interact(InteractionData.CurrentWorldItem, MyPawn);
+		return;
 	}
+
+	AZWorldItem* CandidateTarget = GetCurrentWorldItem();
+	if (!IsValid(CandidateTarget))
+	{
+		return;
+	}
+
+	LocalInteractionData.bInteractHeld = true;
+
+	/*
+	 * 즉각적인 조작감을 위한 로컬 UI 예측입니다.
+	 * 여기서는 게임 상태를 변경하면 안 됩니다.
+	 */
+	StartLocalInteractionFeedback();
+
+	if (Character->HasAuthority())
+	{
+		/*
+		 * Standalone 또는 Listen Server의 로컬 플레이어
+		 */
+		if (ValidateInteractionTarget(CandidateTarget))
+		{
+			BeginInteractionAuthority(CandidateTarget);
+		}
+		else
+		{
+			ClientInteractionRejected_Implementation();
+		}
+	}
+	else
+	{
+		/*
+		 * 일반 네트워크 클라이언트
+		 */
+		ServerBeginInteract(CandidateTarget);
+	}
+}
+
+void UZInteractComponent::EndInteract()
+{
+	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+
+	if (!IsValid(Character) || !Character->IsLocallyControlled())
+	{
+		return;
+	}
+
+	const bool bHadLocalInteraction = LocalInteractionData.bInteractHeld;
+
+	LocalInteractionData.bInteractHeld = false;
+
+	StopLocalInteractionFeedback();
+
+	/*
+	 * 시작한 상호작용이 없다면 취소 RPC도 보내지 않습니다.
+	 */
+	if (!bHadLocalInteraction && !InteractionState.bIsInteracting)
+	{
+		return;
+	}
+
+	if (Character->HasAuthority())
+	{
+		CancelInteractionAuthority();
+	}
+	else
+	{
+		ServerEndInteract();
+	}
+}
+
+void UZInteractComponent::PrimaryInteract()
+{
+	BeginInteract();
+}
+
+void UZInteractComponent::ServerBeginInteract_Implementation(
+	AZWorldItem* CandidateTarget)
+{
+	if (!GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+
+	/*
+	 * 순간 상호작용 RPC 연타 방지
+	 */
+	if (CurrentTime - LastServerInteractionRequestTime < MinServerInteractionInterval)
+	{
+		ClientInteractionRejected();
+		return;
+	}
+
+	LastServerInteractionRequestTime = CurrentTime;
+
+	if (InteractionState.bIsInteracting)
+	{
+		ClientInteractionRejected();
+		return;
+	}
+
+	if (!ValidateInteractionTarget(CandidateTarget))
+	{
+		ClientInteractionRejected();
+		return;
+	}
+
+	BeginInteractionAuthority(CandidateTarget);
+}
+
+void UZInteractComponent::ServerEndInteract_Implementation()
+{
+	CancelInteractionAuthority();
+}
+
+void UZInteractComponent::ClientInteractionRejected_Implementation()
+{
+	LocalInteractionData.bInteractHeld = false;
+
+	StopLocalInteractionFeedback();
+}
+
+void UZInteractComponent::BeginInteractionAuthority(
+	AZWorldItem* CandidateTarget)
+{
+	if (!GetOwner()->HasAuthority() || !IsValid(CandidateTarget))
+	{
+		return;
+	}
+
+	if (InteractionState.bIsInteracting)
+	{
+		CancelInteractionAuthority();
+	}
+
+	const float InteractionDuration = GetInteractionDuration(CandidateTarget);
+
+	InteractionState.ActiveWorldItem = CandidateTarget;
+
+	InteractionState.bIsInteracting = true;
+
+	InteractionState.InteractionEndServerTime =
+		GetWorld()->GetTimeSeconds() + InteractionDuration;
+
+	/*
+	 * 즉시 상호작용
+	 */
+	if (InteractionDuration <= KINDA_SMALL_NUMBER)
+	{
+		CompleteInteractionAuthority();
+		return;
+	}
+
+	/*
+	 * 실제 완료 타이머는 서버에만 생성합니다.
+	 */
+	GetWorld()->GetTimerManager().SetTimer(
+		TimerHandle_ServerInteraction, this,
+		&ThisClass::CompleteInteractionAuthority, InteractionDuration, false);
+
+	GetOwner()->ForceNetUpdate();//?
+}
+
+void UZInteractComponent::CompleteInteractionAuthority()
+{
+	if (!GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	GetWorld()->GetTimerManager().ClearTimer(TimerHandle_ServerInteraction);
+
+	AZWorldItem* Target = InteractionState.ActiveWorldItem.Get();
+
+	/*
+	 * 홀드 도중 플레이어가 이동하거나
+	 * 다른 플레이어가 먼저 획득했을 수 있으므로 재검증합니다.
+	 */
+	if (!ValidateInteractionTarget(Target))
+	{
+		CancelInteractionAuthority();
+		return;
+	}
+
+	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+
+	if (!IsValid(Character))
+	{
+		CancelInteractionAuthority();
+		return;
+	}
+
+	/*
+	 * 여기부터 실제 게임 상태를 변경하는 서버 권위 구간입니다.
+	 */
+	if (Target->Implements<UZInteractable>())
+	{
+		IZInteractable::Execute_Interact(Target, Character);
+	}
+
+	/*
+	 * 기존 코드의 Both 동작을 유지하기 위해
+	 * 두 인터페이스를 모두 실행합니다.
+	 *
+	 * 둘 중 하나만 실행해야 한다면 else if로 변경하거나,
+	 * 별도의 EInteractionType을 서버에서 결정하십시오.
+	 */
+	if (IsValid(Target) && Target->Implements<UZPickable>())
+	{
+		IZPickable::Execute_PickUp(Target, Character);
+	}
+
+	InteractionState.Reset();
+
+	GetOwner()->ForceNetUpdate();
+}
+
+void UZInteractComponent::CancelInteractionAuthority()
+{
+	if (!GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	GetWorld()->GetTimerManager().ClearTimer(TimerHandle_ServerInteraction);
+
+	InteractionState.Reset();
+
+	GetOwner()->ForceNetUpdate();
+}
+
+bool UZInteractComponent::ValidateInteractionTarget(AZWorldItem* CandidateTarget) const
+{
+	/*
+	 * 이 함수는 서버에서만 최종 판정에 사용합니다.
+	 */
+	if (!GetOwner()->HasAuthority())
+	{
+		return false;
+	}
+
+	const AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+	if (!IsValid(Character) || !IsValid(CandidateTarget))
+	{
+		return false;
+	}
+
+	if (!CandidateTarget->Implements<UZInteractable>() && !CandidateTarget->Implements<UZPickable>())
+	{
+		return false;
+	}
+
+	FVector EyeLocation;
+	FRotator EyeRotation;
+	Character->GetActorEyesViewPoint(EyeLocation, EyeRotation);
+
+	const FVector TargetLocation = CandidateTarget->GetActorLocation();
+
+	float AllowedDistance = TraceDistance;
+
+	const UWorldItemWidgetComponent* ItemComponent = CandidateTarget->FindComponentByClass<UWorldItemWidgetComponent>();
+
+	if (IsValid(ItemComponent))
+	{
+		AllowedDistance = FMath::Min(TraceDistance, ItemComponent->InteractionDistance);
+	}
+
+	/*
+	 * 네트워크 위치 오차에 대한 작은 허용치입니다.
+	 */
+	constexpr float NetworkTolerance = 50.f;
+
+	AllowedDistance += NetworkTolerance;
+
+	if (FVector::DistSquared(EyeLocation, TargetLocation) > FMath::Square(AllowedDistance))
+	{
+		return false;
+	}
+
+	/*
+	 * 서버가 알고 있는 시야 방향으로 각도를 검증합니다.
+	 */
+	const FVector ToTarget = (TargetLocation - EyeLocation).GetSafeNormal();
+
+	const float ViewDot = FVector::DotProduct(EyeRotation.Vector(), ToTarget);
+
+	const float MinimumViewDot = FMath::Cos(FMath::DegreesToRadians(MaxInteractionAngle));
+
+	if (ViewDot < MinimumViewDot)
+	{
+		return false;
+	}
+
+	/*
+	 * 벽이나 장애물에 가려졌는지 검증합니다.
+	 */
+	FHitResult HitResult;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ServerInteractionTrace),false, Character);
+	const bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, EyeLocation, TargetLocation, ECC_Visibility, QueryParams);
+	if (bHit && HitResult.GetActor() != CandidateTarget)
+	{
+		return false;
+	}
+
+	/*
+	 * 추가할 서버 검증:
+	 *
+	 * - 아이템이 이미 획득됐는가?
+	 * - 문이나 상자가 잠겼는가?
+	 * - 캐릭터가 사망·경직 상태인가?
+	 * - 인벤토리에 공간이 있는가?
+	 * - 쿨다운 중인가?
+	 */
+
+	return true;
+}
+
+float UZInteractComponent::GetInteractionDuration(AZWorldItem* Target) const
+{
+	if (!IsValid(Target))
+	{
+		return 0.f;
+	}
+
+	const UWorldItemWidgetComponent* ItemComponent = Target->FindComponentByClass<UWorldItemWidgetComponent>();
+	if (!IsValid(ItemComponent))
+	{
+		return 0.f;
+	}
+
+	return FMath::Max(0.f, ItemComponent->InteractionTime);
+}
+
+void UZInteractComponent::StartLocalInteractionFeedback()
+{
+	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+	UWorldItemWidgetComponent* ItemComponent = GetCurrentWorldItemWidgetComponent();
+	if (!IsValid(Character) || !IsValid(ItemComponent))
+	{
+		return;
+	}
+
+	/*
+	 * 이 함수가 위젯 진행 표시만 수행하도록 해야 합니다.
+	 * 아이템 획득이나 문 열기 등을 실행하면 안 됩니다.
+	 */
+	ItemComponent->BeginInteract(Character);
+}
+
+void UZInteractComponent::StopLocalInteractionFeedback()
+{
+	AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+	UWorldItemWidgetComponent* ItemComponent = GetCurrentWorldItemWidgetComponent();
+	if (!IsValid(Character) || !IsValid(ItemComponent))
+	{
+		return;
+	}
+
+	/*
+	 * UI 진행 표시 종료만 수행해야 합니다.
+	 */
+	ItemComponent->EndInteract(Character);
+}
+
+void UZInteractComponent::OnRep_InteractionState()
+{
+	if (InteractionState.bIsInteracting)
+	{
+		/*
+		 * 서버가 상호작용 시작을 승인했습니다.
+		 *
+		 * 로컬 예측으로 이미 UI를 시작했으므로
+		 * 여기서는 진행 종료 시간을 동기화하면 됩니다.
+		 */
+		return;
+	}
+
+	/*
+	 * 서버에서 완료 또는 취소되었습니다.
+	 */
+	LocalInteractionData.bInteractHeld = false;
+
+	StopLocalInteractionFeedback();
+}
+
+bool UZInteractComponent::IsInteracting() const
+{
+	/*
+	 * 로컬 예측 상태 또는 서버 승인 상태 중
+	 * 하나라도 활성화되어 있으면 true입니다.
+	 */
+	return LocalInteractionData.bInteractHeld || InteractionState.bIsInteracting;
+}
+
+float UZInteractComponent::GetRemainingInteractionTime() const
+{
+	if (!InteractionState.bIsInteracting)
+	{
+		return 0.f;
+	}
+
+	const AGameStateBase* GameState = GetWorld()->GetGameState();
+	
+	const float CurrentServerTime = IsValid(GameState) ? GameState->GetServerWorldTimeSeconds() : GetWorld()->GetTimeSeconds();
+
+	return FMath::Max(0.f, InteractionState.InteractionEndServerTime - CurrentServerTime);
+}
+
+bool UZInteractComponent::IsActorOutOfRange(const AZWorldItem* WorldItem) const
+{
+	const AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+
+	if (!IsValid(Character) || !IsValid(WorldItem))
+	{
+		return true;
+	}
+
+	FVector EyeLocation;
+	FRotator EyeRotation;
+
+	Character->GetActorEyesViewPoint(EyeLocation, EyeRotation);
+
+	float AllowedDistance = TraceDistance;
+
+	const UWorldItemWidgetComponent* ItemComponent =
+		WorldItem->FindComponentByClass<UWorldItemWidgetComponent>();
+
+	if (IsValid(ItemComponent))
+	{
+		AllowedDistance =
+			FMath::Min(TraceDistance, ItemComponent->InteractionDistance);
+	}
+
+	return FVector::DistSquared(EyeLocation, WorldItem->GetActorLocation()) >
+		FMath::Square(AllowedDistance);
+}
+
+bool UZInteractComponent::IsActorInSight(const AZWorldItem* WorldItem) const
+{
+	const AZ1Character* Character = Cast<AZ1Character>(GetOwner());
+
+	if (!IsValid(Character) || !IsValid(WorldItem))
+	{
+		return false;
+	}
+
+	FVector EyeLocation;
+	FRotator EyeRotation;
+	Character->GetActorEyesViewPoint(EyeLocation, EyeRotation);
+
+	const FVector ToActor = (WorldItem->GetActorLocation() - EyeLocation).GetSafeNormal();
+
+	const float DotProduct = FVector::DotProduct(EyeRotation.Vector(), ToActor);
+
+	const float MinimumDotProduct = FMath::Cos(FMath::DegreesToRadians(MaxInteractionAngle));
+
+	return DotProduct >= MinimumDotProduct;
+}
+
+void UZInteractComponent::DrawDebugInfo(const FVector& Start, const FVector& End, const TArray<FHitResult>& Hits, bool bAnyHit) const
+{
+	if (!CVarDebugDrawInteraction.GetValueOnGameThread())
+	{
+		return;
+	}
+
+	const FColor DebugColor = bAnyHit ? FColor::Green : FColor::Red;
+
+	for (const FHitResult& Hit : Hits)
+	{
+		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, TraceRadius, 16, DebugColor,
+		                false, InteractionCheckFrequency);
+	}
+
+	DrawDebugLine(GetWorld(), Start, End, DebugColor, false,
+	              InteractionCheckFrequency, 0, 1.f);
 }

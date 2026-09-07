@@ -27,8 +27,8 @@ UZTargetLockComponent::UZTargetLockComponent()
 
 	// ...
 	// 기본값 설정
-	LockRange = 1500.0f;
-	LockAngle = 180.0f;
+	LockRange = 2000.0f;
+	HalfLockAngle = 45.0f;
 	LockedTarget = nullptr;
 	InterpSpeed = 9.0f;
 
@@ -181,7 +181,7 @@ bool UZTargetLockComponent::TargetDistanceChecking(const TObjectPtr<AActor>& Sel
 	// 거리 점수 (가까울수록 좋은 타겟)
 	float CurrentDistance = FVector::Dist(OwnerLocation, SelectedActor->GetActorLocation());
 	
-	if (CVarDebugDrawLockOn.GetValueOnGameThread())
+	if (CVarDebugDrawLockOn.GetValueOnGameThread() && IsValid(LockedTarget))
 	{
 		// 타겟까지 선(Line) 그리기
 		DrawDebugLine(
@@ -212,7 +212,7 @@ bool UZTargetLockComponent::TargetAngleChecking(const TObjectPtr<AActor>& Select
 	
 	FVector DirToCandidate = (SelectedActor->GetActorLocation() - OwnerLocation).GetSafeNormal();
 	float DotProduct = FVector::DotProduct(OwnerForward, DirToCandidate);
-	float AngleDegrees = FMath::Acos(DotProduct) * (180.f / PI);
+	float AngleBtwCandidate = FMath::Acos(DotProduct) * (180.f / PI);
 
 	if (CVarDebugDrawLockOn.GetValueOnGameThread())
 	{
@@ -222,18 +222,19 @@ bool UZTargetLockComponent::TargetAngleChecking(const TObjectPtr<AActor>& Select
 			OwnerLocation,
 			OwnerForward,
 			LockRange,
-			FMath::DegreesToRadians(LockAngle),
+			FMath::DegreesToRadians(HalfLockAngle),
 			FMath::DegreesToRadians(1),
 			12,
-			AngleDegrees > LockAngle ? FColor::Green : FColor::Red,  // 시야각 표시 (파란색)
+			AngleBtwCandidate > HalfLockAngle ? FColor::Red : FColor::Green,  // 시야각 표시 (파란색)
 			false,
 			1.0f
 		);
 	}
 
 	// 시야각 조건 검사
-	if (AngleDegrees > LockAngle)
+	if (AngleBtwCandidate > HalfLockAngle)
 	{
+		// 플레이어의 시야에 없음
 		return false;
 	}
 

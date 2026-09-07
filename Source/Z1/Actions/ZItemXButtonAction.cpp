@@ -20,29 +20,29 @@ void UZItemXButtonAction::StartAction(AActor* Instigator)
 	UZAnimInstance* AnimInstance = GetOwningAnimInstance();
 	if (!IsValid(AnimInstance) || AnimInstance->Montage_IsPlaying(ItemUseMontage))
 	{
+		StopAction(Instigator);
 		return;
 	}
 	
-	TObjectPtr<AZ1Character> Character = Cast<AZ1Character>(GetCharacter());
-	if (!Character) return;
+	if (TObjectPtr<AZ1Character> Character = Cast<AZ1Character>(GetCharacter()))
+	{
+		if (TObjectPtr<UZEquipmentManagerComponent> EquipmentManagerComponent = Character->GetComponentByClass<UZEquipmentManagerComponent>())
+		{
+			if (TObjectPtr<UZInventoryItem> Item = EquipmentManagerComponent->GetEquippedItem(EItemSlotType::EIS_HealthPotion))
+			{
+				if (TObjectPtr<UZPotionInventoryItem> PotionInventoryItem = Cast<UZPotionInventoryItem>(Item))
+				{
+					PotionInventoryItem->Execute_UseItem(PotionInventoryItem, Character);
 
-	TObjectPtr<UZEquipmentManagerComponent> EquipmentManagerComponent = Character->GetComponentByClass<UZEquipmentManagerComponent>();
-	if (!EquipmentManagerComponent) return;
+					AnimInstance->Montage_Play(ItemUseMontage);
 
-	TObjectPtr<UZInventoryItem> Item = EquipmentManagerComponent->GetEquippedItem(EItemSlotType::EIS_HealthPotion);
-	if (!Item) return;
-
-	TObjectPtr<UZPotionInventoryItem> PotionInventoryItem = Cast<UZPotionInventoryItem>(Item);
-	if (!PotionInventoryItem) return;
-
-	PotionInventoryItem->UseItem(Character);
-	
-	AnimInstance->Montage_Play(ItemUseMontage);
-
-	// Montage 종료 시점에 호출될 델리게이트 바인딩
-	FOnMontageEnded EndDelegate;
-	EndDelegate.BindUObject(this, &UZItemXButtonAction::OnItemUseMontageEnded);
-	AnimInstance->Montage_SetEndDelegate(EndDelegate, ItemUseMontage);
+					FOnMontageEnded EndDelegate;
+					EndDelegate.BindUObject(this, &UZItemXButtonAction::OnItemUseMontageEnded);
+					AnimInstance->Montage_SetEndDelegate(EndDelegate, ItemUseMontage);
+				}
+			}
+		}
+	}
 }
 
 void UZItemXButtonAction::StopAction(AActor* Instigator)
@@ -54,10 +54,6 @@ void UZItemXButtonAction::OnItemUseMontageEnded(UAnimMontage* Montage, bool bInt
 {
 	if (Montage == ItemUseMontage && !bInterrupted)
 	{
-		AActor* Instigator = GetOwningComponent()->GetOwner();
-		if (IsValid(Instigator))
-		{
-			StopAction(Instigator);
-		}
+		StopAction(GetCharacter());
 	}
 }

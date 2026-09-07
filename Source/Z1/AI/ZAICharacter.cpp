@@ -4,6 +4,7 @@
 #include "AI/ZAICharacter.h"
 #include "BrainComponent.h"
 #include "ZAIController.h"
+#include "Animation/AnimInstance.h"
 #include "Components/ZAttributeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Perception/PawnSensingComponent.h"
@@ -71,6 +72,8 @@ void AZAICharacter::OnHealthChanged(AActor* InstigatorActor, UZAttributeComponen
 {
 	if (Delta <= 0.0f)
 	{
+		this->PlayHitReactAnimation(InstigatorActor);
+
 		UE_LOG(LogTemp, Warning, TEXT("AZAICharacter CurrentHealth is %f"), NewValue);
 
 		if (NewValue <= 0.0f)
@@ -81,38 +84,41 @@ void AZAICharacter::OnHealthChanged(AActor* InstigatorActor, UZAttributeComponen
 			{
 				AIController->GetBrainComponent()->StopLogic("Killed");
 			}
-
-
-			// if (IsValid(DeathAnimMontage))
-			// {
-			// 	PlayAnimMontage(DeathAnimMontage);
-			// }
-			// else
-			// {
-			// 	UE_LOG(LogTemp, Warning, TEXT("DeathAnimMontage is NULL"));
-			// }
-
-			UE_LOG(LogTemp, Warning, TEXT("DeathAnimMontage is NULL"));
-
-			//Ragdoll
-			EnableRagdoll();
 			
-			//Set lifeSpan
-			SetLifeSpan(10.f);
+			if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
+			{
+				if (IsValid(DeathAnimMontage))
+				{
+					FOnMontageEnded EndDelegate;
+					AnimInstance->Montage_SetEndDelegate(EndDelegate, nullptr);
+
+					AnimInstance->Montage_Play(DeathAnimMontage);
+					
+					EndDelegate.BindUObject(this, &AZAICharacter::AfterCharacterDeath);
+					AnimInstance->Montage_SetEndDelegate(EndDelegate, DeathAnimMontage);
+				}
+			}
 		}
 	}
 }
 
+void AZAICharacter::AfterCharacterDeath(UAnimMontage* InAttackMontage, bool bProperlyEnded)
+{
+	EnableRagdoll();
+	SetLifeSpan(5.f);
+	ShowLockOnWidget(false);
+}
+
 void AZAICharacter::EnableRagdoll()
 {
-	// ✅ 1. SkeletalMesh에 물리 시뮬레이션 활성화
+	// SkeletalMesh에 물리 시뮬레이션 활성화
 	GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));  // 충돌 프로필 변경
 	GetMesh()->SetAllBodiesSimulatePhysics(true);  // 물리 활성화
 	GetMesh()->SetSimulatePhysics(true);
 	GetMesh()->WakeAllRigidBodies();  // 모든 물리 바디 활성화
 	GetMesh()->bBlendPhysics = true;  // 애니메이션에서 물리로 부드럽게 전환
 
-	// ✅ 2. 캡슐 콜리전 비활성화 (Ragdoll이 캡슐과 충돌하지 않도록)
+	// 캡슐 콜리전 비활성화 (Ragdoll이 캡슐과 충돌하지 않도록)
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
@@ -121,5 +127,48 @@ void AZAICharacter::ShowLockOnWidget(bool bShow)
 	if (LockOnWidget)
 	{
 		LockOnWidget->SetVisibility(bShow);
+	}
+}
+
+void AZAICharacter::PlayHitReactAnimation(TObjectPtr<AActor> InstigatorActor)
+{
+	if (!IsValid(InstigatorActor)) return;
+
+	// 피격 방향 계산 수정: 인스티게이터의 위치에서 현재 액터의 위치를 빼서 계산합니다.
+	FVector HitDirection = InstigatorActor->GetActorLocation() - GetActorLocation();
+	HitDirection.Normalize();
+
+	float DotProductForward = FVector::DotProduct(GetActorForwardVector(), HitDirection);
+	float DotProductRight = FVector::DotProduct(GetActorRightVector(), HitDirection);
+
+	UAnimMontage* HitReactMontage = nullptr;
+
+	if (DotProductForward > 0.5f)
+	{
+		HitReactMontage = FrontHitMontage; // 정면 피격
+	}
+	else if (DotProductForward < -0.5f)
+	{
+		HitReactMontage = BackHitMontage; // 뒤쪽 피격
+	}
+	else if (DotProductRight > 0)
+	{
+		HitReactMontage = RightHitMontage; // 오른쪽 피격
+	}
+	else
+	{
+		HitReactMontage = LeftHitMontage; // 왼쪽 피격
+	}
+
+	if (HitReactMontage)
+	{
+		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
+		{
+			if (AnimInstance->IsAnyMontagePlaying())
+			{
+				AnimInstance->Montage_Stop(0.2f); // 기존 몽타주를 0.2초 동안 부드럽게 멈춤
+			}
+			AnimInstance->Montage_Play(HitReactMontage);
+		}
 	}
 }

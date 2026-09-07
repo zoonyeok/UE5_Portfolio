@@ -33,9 +33,9 @@ protected:
 	virtual void StartAttack() override;
 
 	virtual void EndAttack() override;
-
-	virtual EInventoryActionResult PickUp(APawn* Player);
-
+	
+	virtual EInventoryActionResult PickUp_Implementation(APawn* Player) override;
+	
 	virtual UZInventoryItem* ConvertToInventoryItem() override;
 
 	virtual void PostInitializeComponents() override;
@@ -53,5 +53,5 @@ protected:
 	UFUNCTION()
 	void OnWeaponHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
-	float CalculateFinalDamage() override;
+	virtual float CalculateFinalDamage() override;
 };

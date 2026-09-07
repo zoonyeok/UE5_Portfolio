@@ -30,9 +30,9 @@ EInventoryActionResult AZPotionWorldItem::PickUp_Implementation(APawn* Player)
     if (!IsValid(Character))
     {
         // LOG
-        return EInventoryActionResult::Fail;
+        return EInventoryActionResult::Fail; 
     }
-
+ 
     UZSpatialInventoryComponent* InvenComp = Character->GetComponentByClass<UZSpatialInventoryComponent>();
     //UZInventoryComponent* InvenComp = Character->GetComponentByClass<UZInventoryComponent>();
     if (!IsValid(InvenComp))

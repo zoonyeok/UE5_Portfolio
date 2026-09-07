@@ -18,5 +18,14 @@ protected:
 	virtual void TickNode(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds) override;
 
 	UPROPERTY(EditAnywhere, Category="AI")
-	FBlackboardKeySelector AttackRangeKey;
+	FBlackboardKeySelector RangedAttackRangeKey;
+
+	UPROPERTY(EditAnywhere, Category="AI")
+	FBlackboardKeySelector MeleeAttackRangeKey;
+
+	UPROPERTY(EditAnywhere, Category="AI")
+	float RangedAttackDistance = 2000.f;
+
+	UPROPERTY(EditAnywhere, Category="AI")
+	float MeleeAttackDistance = 500.f;
 };

@@ -74,6 +74,10 @@ private:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = ActionsData, meta = (AllowPrivateAccess = "true"))
 	TMap<FName, UZAction*> ActionsMap;
 
-	UPROPERTY()
+	//Replicated
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = ActionsData, meta = (AllowPrivateAccess = "true"))
 	TMap<FGameplayTag, UZAction*> ActionsTagMap;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = ActionsData, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UZAction> CurrentAction;
 };

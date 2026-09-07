@@ -12,7 +12,7 @@ UZSpatialInventoryComponent::UZSpatialInventoryComponent()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = false;
 
-	GridSize = FVector2D(12, 5); // Default grid size
+	GridSize = FIntPoint(12, 5); // Default grid size
 }
 
 
@@ -25,9 +25,9 @@ void UZSpatialInventoryComponent::BeginPlay()
 	InitializeGrid(GridSize);
 }
 
-TMap<UZInventoryItem*, FVector2D> UZSpatialInventoryComponent::GetInventoryItems() const
+TMap<UZInventoryItem*, FIntPoint> UZSpatialInventoryComponent::GetInventoryItems() const
 {
-	TMap<UZInventoryItem*, FVector2D> Results;
+	TMap<UZInventoryItem*, FIntPoint> Results;
 
 	if (GridCells.Num() <= 0)
 	{
@@ -50,7 +50,7 @@ TMap<UZInventoryItem*, FVector2D> UZSpatialInventoryComponent::GetInventoryItems
 			if (FoundItem != nullptr && !Results.Contains(FoundItem))
 			{
 				// 첫 발견된 좌표를 기록 (보통 좌상단이 됨)
-				Results.Add(FoundItem, FVector2D(X, Y));
+				Results.Add(FoundItem, FIntPoint(X, Y));
 			}
 		}
 	}
@@ -67,7 +67,7 @@ void UZSpatialInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimePro
 	DOREPLIFETIME(ThisClass, SlotOccupied);
 }
 
-bool UZSpatialInventoryComponent::AddItem(UZInventoryItem* NewItem, FVector2D StartPosition, bool bBroadcast)
+bool UZSpatialInventoryComponent::AddItem(UZInventoryItem* NewItem, FIntPoint StartPosition, bool bBroadcast)
 {
 	if (!NewItem)
 	{
@@ -75,8 +75,7 @@ bool UZSpatialInventoryComponent::AddItem(UZInventoryItem* NewItem, FVector2D St
 	}
 
 	// 예: 아이템이 2×3이라면
-	FVector2D ItemSize = NewItem->GetGridSize();
-
+	FIntPoint ItemSize = NewItem->GetGridSize();
 	// 먼저 배치가 가능한지(경계 밖 or 이미 점유된 셀이 있는지) 확인
 	if (!CanPlaceItem(StartPosition, ItemSize))
 	{
@@ -94,7 +93,7 @@ bool UZSpatialInventoryComponent::AddItem(UZInventoryItem* NewItem, FVector2D St
 		}
 	}
 
-	if (bBroadcast && OnInventoryChanged.IsBound())
+	if (bBroadcast)
 	{
 		OnInventoryChanged.Broadcast();
 	}
@@ -113,21 +112,17 @@ bool UZSpatialInventoryComponent::TryAddItem(UZInventoryItem* NewItem)
 	int32 StartX = 0;
 	int32 EndY = GridSize.Y;
 	int32 EndX = GridSize.X;
-	FVector2D ItemSize = NewItem->GetGridSize();
+	FIntPoint ItemSize = NewItem->GetGridSize();
 
 	for (int32 Y = StartY; Y < EndY; ++Y)
 	{
 		for (int32 X = StartX; X < EndX; ++X)
 		{
-			FVector2D NewPosition(X, Y);
+			FIntPoint NewPosition(X, Y);
 			if (CanPlaceItem(NewPosition, ItemSize))
 			{
-				AddItem(NewItem, NewPosition);
-				if (OnInventoryChanged.IsBound())
-				{
-					OnInventoryChanged.Broadcast();
-				}
-				return true;
+				// AddItem이 자체적으로 브로드캐스트를 처리하므로 여기서 다시 호출하지 않는다.
+				return AddItem(NewItem, NewPosition);
 			}
 		}
 	}
@@ -135,8 +130,13 @@ bool UZSpatialInventoryComponent::TryAddItem(UZInventoryItem* NewItem)
 	return false;
 }
 
-void UZSpatialInventoryComponent::RemoveItemByGridPosition(FVector2D StartPosition, bool bBroadcast)
+void UZSpatialInventoryComponent::RemoveItemByGridPosition(FIntPoint StartPosition, bool bBroadcast)
 {
+	if (!IsPositionInBounds(StartPosition.X, StartPosition.Y))
+	{
+		return; // 유효하지 않은 위치
+	}
+
 	int32 StartIndex = GetCellIndex(StartPosition.X, StartPosition.Y);
 	UZInventoryItem* ItemToRemove = GridCells[StartIndex];
 	if (ItemToRemove == nullptr)
@@ -145,7 +145,7 @@ void UZSpatialInventoryComponent::RemoveItemByGridPosition(FVector2D StartPositi
 		return; // No item to remove
 	}
 
-	FVector2D ItemSize = ItemToRemove->GetGridSize();
+	FIntPoint ItemSize = ItemToRemove->GetGridSize();
 
 	// 해당 영역을 "비움" (nullptr, false)
 	for (int32 Y = StartPosition.Y; Y < StartPosition.Y + ItemSize.Y; ++Y)
@@ -160,7 +160,7 @@ void UZSpatialInventoryComponent::RemoveItemByGridPosition(FVector2D StartPositi
 
 	// Broadcast the update
 	//Multicast_InventoryUpdate(FInventoryUpdate(StartPosition, Size, ItemToRemove, false));
-	if (bBroadcast && OnInventoryChanged.IsBound())
+	if (bBroadcast)
 	{
 		OnInventoryChanged.Broadcast();
 	}
@@ -177,44 +177,43 @@ void UZSpatialInventoryComponent::RemoveItemByPointer(UZInventoryItem* ItemToRem
 
 	// 아이템의 "좌상단 셀" 혹은 "가장 먼저 발견된 셀" 위치를 찾는다
 	FIntPoint FoundPos = FindItemPosition(ItemToRemove);
-	if (FoundPos.X < 0 || FoundPos.Y < 0  || FoundPos.X > GridSize.X || FoundPos.Y > GridSize.Y)
+	if (!IsPositionInBounds(FoundPos.X, FoundPos.Y))
 	{
 		// 해당 아이템이 그리드에 없는 경우
 		return;
 	}
 
 	// 위에서 찾은 위치를 기반으로 RemoveItemByGridPosition 호출
-	RemoveItemByGridPosition(FVector2D(FoundPos.X, FoundPos.Y));
+	RemoveItemByGridPosition(FoundPos);
 }
 
-UZInventoryItem* UZSpatialInventoryComponent::GetItemFromGrid(FVector2D Position) const
+UZInventoryItem* UZSpatialInventoryComponent::GetItemFromGrid(FIntPoint Position) const
 {
-	int32 Index = GetCellIndex(Position.X, Position.Y);
-	// 경계 초과 확인
-	if (Index < 0 || Index >= GridCells.Num())
+	// Position.X/Y만 개별로 검사하지 않고 GetCellIndex부터 계산하면,
+	// 음수 좌표가 옆 행의 유효한 인덱스로 alias되어 잘못된 아이템을 반환할 수 있다.
+	if (!IsPositionInBounds(Position.X, Position.Y))
 	{
 		return nullptr; // 경계를 초과
 	}
-	return GridCells[Index];
+
+	return GridCells[GetCellIndex(Position.X, Position.Y)];
 }
 
 //TODO : 지금
-int32 UZSpatialInventoryComponent::GetItemCountAtPosition(UZInventoryItem* Item, FVector2D ItemPosition, FVector2D ItemSize) const
+int32 UZSpatialInventoryComponent::GetItemCountAtPosition(UZInventoryItem* Item, FIntPoint ItemPosition, FIntPoint ItemSize) const
 {
+	if (!IsRegionInBounds(ItemPosition, ItemSize))
+	{
+		return -1; // 경계를 초과
+	}
+
 	int32 StartY = ItemPosition.Y;
 	int32 StartX = ItemPosition.X;
 	int32 EndY = StartY + ItemSize.Y;
 	int32 EndX = StartX + ItemSize.X;
 
-	// 경계 초과 확인으로 공간확인
-	if (StartX < 0 || StartY < 0 || EndX > GridSize.X || EndY > GridSize.Y)
-	{
-		return -1; // 경계를 초과
-	}
-
-	//아이템 종류확인
-	TSet<FName> ItemNum;
-	TObjectPtr<UZInventoryItem> FoundItem;
+	//아이템 종류확인 (자기 자신과 같은 종류는 제외)
+	TSet<UZInventoryItem*> ItemNum;
 	for (int32 Y = StartY; Y < EndY; ++Y)
 	{
 		for (int32 X = StartX; X < EndX; ++X)
@@ -222,45 +221,31 @@ int32 UZSpatialInventoryComponent::GetItemCountAtPosition(UZInventoryItem* Item,
 			int32 Index = GetCellIndex(X, Y);
 			TObjectPtr<UZInventoryItem> CellItem = GridCells[Index];
 
-			if (IsValid(CellItem))
+			if (!IsValid(CellItem) || CellItem == Item)
 			{
-				FItemStaticData* CellItemData = CellItem.Get()->GetStaticData();
-				FItemStaticData* OriginItemData = Item->GetStaticData();
-				if (CellItemData && OriginItemData)
-				{
-					//자기 자신 제외
-					if (CellItemData->ItemID == OriginItemData->ItemID)
-					{
-						continue;
-					}
-				}
-
-				if (CellItemData && CellItemData->ItemID.ToString().Len() > 0)
-				{
-					if (!ItemNum.Find(CellItemData->ItemID))
-					{
-						ItemNum.Add(CellItemData->ItemID);
-					}
-				}
+				continue;
 			}
+
+			ItemNum.Add(CellItem.Get());
+
+
 		}
 	}
 
 	return ItemNum.Num();
 }
 
-TObjectPtr<UZInventoryItem> UZSpatialInventoryComponent::GetItemAtPosition(UZInventoryItem* Item, FVector2D ItemPosition, FVector2D ItemSize) const
+TObjectPtr<UZInventoryItem> UZSpatialInventoryComponent::GetItemAtPosition(UZInventoryItem* Item, FIntPoint ItemPosition, FIntPoint ItemSize) const
 {
+	if (!IsRegionInBounds(ItemPosition, ItemSize))
+	{
+		return nullptr; // 경계 초과
+	}
+
 	int32 StartY = ItemPosition.Y;
 	int32 StartX = ItemPosition.X;
 	int32 EndY = StartY + ItemSize.Y;
 	int32 EndX = StartX + ItemSize.X;
-
-	// 경계 초과 확인
-	if (StartX < 0 || StartY < 0 || EndX > GridSize.X || EndY > GridSize.Y)
-	{
-		return nullptr; // 경계 초과
-	}
 
 	for (int32 Y = StartY; Y < EndY; ++Y)
 	{
@@ -269,19 +254,9 @@ TObjectPtr<UZInventoryItem> UZSpatialInventoryComponent::GetItemAtPosition(UZInv
 			int32 Index = GetCellIndex(X, Y);
 			TObjectPtr<UZInventoryItem> CellItem = GridCells[Index];
 
-			if (IsValid(CellItem))
+			if (IsValid(CellItem) && CellItem != Item)
 			{
-				FItemStaticData* CellItemData = CellItem.Get()->GetStaticData();
-				FItemStaticData* OriginItemData = Item->GetStaticData();
-				if (CellItemData && OriginItemData)
-				{
-					//자기 자신 제외
-					if (CellItemData->ItemID == OriginItemData->ItemID)
-					{
-						continue;
-					}
-				}
-				return CellItem; // 첫 번째 유효한 아이템 반환
+				return CellItem; // 자기 자신이 아닌 첫 번째 유효한 아이템 반환
 			}
 		}
 	}
@@ -291,8 +266,7 @@ TObjectPtr<UZInventoryItem> UZSpatialInventoryComponent::GetItemAtPosition(UZInv
 
 bool UZSpatialInventoryComponent::IsItemDropPositionOutOfBounds(const FIntPoint& ItemDropPosition) const
 {
-	return (ItemDropPosition.X < 0 || ItemDropPosition.X > static_cast<int32>(GridSize.X) ||
-		ItemDropPosition.Y < 0 || ItemDropPosition.Y > static_cast<int32>(GridSize.Y));
+	return !IsPositionInBounds(ItemDropPosition.X, ItemDropPosition.Y);
 }
 
 FIntPoint UZSpatialInventoryComponent::FindItemPosition(UZInventoryItem* Item) const
@@ -316,47 +290,34 @@ void UZSpatialInventoryComponent::SwapItems(UZInventoryItem* ItemInGrid, UZInven
 
 	FIntPoint ItemInGridPosition = FindItemPosition(ItemInGrid);
 	FIntPoint DroppedItemPosition = FindItemPosition(DroppedItem);
-	
-	// 마우스로 클릭하고 아직 그리드에 안넣어준 상태
-	// DroppedItemPosition이 음수가되는 이유는 마우스에 고정되어있고 그리드에 없기 때문
-	if (DroppedItemPosition.X < 0 && DroppedItemPosition.Y < 0)
+
+	// ItemInGrid가 있던 자리를 비운다. (위젯 쪽에서 이 아이템을 커서로 픽업 처리)
+	RemoveItemByGridPosition(ItemInGridPosition, false);
+
+	// 마우스로 집고 아직 그리드에 안 넣어준 상태라면 DroppedItemPosition이 (-1, -1)이라 여기 건너뜀.
+	// DroppedItem이 이미 이 그리드 안에 있었다면(같은 인벤토리 내 재배치) 원래 자리도 비운다.
+	if (DroppedItemPosition.X >= 0 && DroppedItemPosition.Y >= 0)
 	{
-		RemoveItemByGridPosition(FVector2D(ItemInGridPosition.X, ItemInGridPosition.Y), false);
-		AddItem(DroppedItem, FVector2D(DropPosition.X, DropPosition.Y), false);
-		if (OnInventoryChanged.IsBound())
-		{
-			OnInventoryChanged.Broadcast();
-		}
+		RemoveItemByGridPosition(DroppedItemPosition, false);
 	}
 
-	if (ItemInGridPosition.X >= 0 && ItemInGridPosition.Y >= 0 && DroppedItemPosition.X >= 0 && DroppedItemPosition.Y >= 0)
-	{
-		// 기존 위치에서 아이템 제거
-		RemoveItemByGridPosition(FVector2D(ItemInGridPosition.X, ItemInGridPosition.Y), false);
-		RemoveItemByGridPosition(FVector2D(DroppedItemPosition.X, DroppedItemPosition.Y), false);
+	AddItem(DroppedItem, DropPosition, false);
 
-		AddItem(DroppedItem, FVector2D(DropPosition.X, DropPosition.Y), false);
-		if (OnInventoryChanged.IsBound())
-		{
-			OnInventoryChanged.Broadcast();
-		}
-	}
+	OnInventoryChanged.Broadcast();
 }
 
-bool UZSpatialInventoryComponent::CanPlaceItem(FVector2D StartPosition, FVector2D Size) const
+bool UZSpatialInventoryComponent::CanPlaceItem(FIntPoint StartPosition, FIntPoint Size) const
 {
+	if (!IsRegionInBounds(StartPosition, Size))
+	{
+		return false;
+	}
+
 	int32 StartY = StartPosition.Y;
 	int32 StartX = StartPosition.X;
 
 	int32 EndY = StartY + Size.Y;
 	int32 EndX = StartX + Size.X;
-
-	//TODO + Size해줘야하나 
-	// 경계 초과 확인
-	if (StartX < 0 || StartY < 0 || EndX > GridSize.X || EndY > GridSize.Y)
-	{
-		return false;
-	}
 
 	for (int32 Y = StartY; Y < EndY; ++Y)
 	{
@@ -372,7 +333,7 @@ bool UZSpatialInventoryComponent::CanPlaceItem(FVector2D StartPosition, FVector2
 	return true;
 }
 
-void UZSpatialInventoryComponent::SetCellsOccupied(FVector2D StartPosition, FVector2D Size, bool bOccupied)
+void UZSpatialInventoryComponent::SetCellsOccupied(FIntPoint StartPosition, FIntPoint Size, bool bOccupied)
 {
 	int32 StartX = StartPosition.X;
 	int32 StartY = StartPosition.Y;
@@ -401,8 +362,8 @@ FIntPoint UZSpatialInventoryComponent::IndexToPosition(int32 Index) const
 	}
 
 	// X와 Y를 계산
-	int32 X = Index % static_cast<int32>(GridSize.X); // 가로 너비를 나머지 연산
-	int32 Y = Index / static_cast<int32>(GridSize.X); // 가로 너비로 나눠서 행 계산
+	int32 X = Index % GridSize.X; // 가로 너비를 나머지 연산
+	int32 Y = Index / GridSize.X; // 가로 너비로 나눠서 행 계산
 
 	return FIntPoint(X, Y);
 }
@@ -412,7 +373,34 @@ int32 UZSpatialInventoryComponent::GetCellIndex(int32 X, int32 Y) const
 	return Y * GridSize.X + X;
 }
 
-void UZSpatialInventoryComponent::InitializeGrid(FVector2D InDimensions)
+bool UZSpatialInventoryComponent::IsPositionInBounds(int32 X, int32 Y) const
+{
+	return X >= 0 && Y >= 0 && X < GridSize.X && Y < GridSize.Y;
+}
+
+bool UZSpatialInventoryComponent::IsRegionInBounds(FIntPoint StartPosition, FIntPoint Size) const
+{
+	const int32 EndX = StartPosition.X + Size.X;
+	const int32 EndY = StartPosition.Y + Size.Y;
+
+	return StartPosition.X >= 0 && StartPosition.Y >= 0
+		&& EndX <= GridSize.X && EndY <= GridSize.Y;
+}
+
+bool UZSpatialInventoryComponent::IsSameItemType(const UZInventoryItem* A, const UZInventoryItem* B) const
+{
+	if (!A || !B)
+	{
+		return false;
+	}
+
+	const FItemStaticData* DataA = A->GetStaticData();
+	const FItemStaticData* DataB = B->GetStaticData();
+
+	return DataA && DataB && DataA->ItemID == DataB->ItemID;
+}
+
+void UZSpatialInventoryComponent::InitializeGrid(FIntPoint InDimensions)
 {
 	GridSize = InDimensions;
 	int32 TotalCells = GridSize.X * GridSize.Y;

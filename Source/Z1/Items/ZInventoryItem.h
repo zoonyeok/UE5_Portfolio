@@ -27,7 +27,7 @@ public:
     /** Get the dynamic item instance data */
     const FItemInstanceData& GetInstanceData() const { return InstanceData; }
 
-    FORCEINLINE FVector2D GetGridSize() const { return ItemGridSize; }
+    FORCEINLINE FIntPoint GetGridSize() const { return ItemGridSize; }
 
     UMaterialInstanceDynamic* GetIconMaterial(bool Rotate);
 
@@ -51,7 +51,7 @@ protected:
 
     // 아이템의 크기 (그리드 셀 크기)
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    FVector2D ItemGridSize; // 예: 2x2 아이템
+    FIntPoint ItemGridSize; // 예: 2x2 아이템
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     UMaterialInstanceDynamic* IconMaterial;

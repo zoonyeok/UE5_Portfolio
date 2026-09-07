@@ -40,6 +40,29 @@ void AZPlayerController::Destroyed()
 	}
 }
 
+void AZPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// PIE 종료/레벨 전환 시에는 Destroyed()가 호출된다는 보장이 없어서,
+	// 뷰포트에 붙은 위젯들이 RemoveFromParent 없이 방치되다가 GC가 뒤늦게
+	// 정리하면서 "SObjectWidget destroyed while collecting garbage" ensure가 뜨는
+	// 원인이었다. EndPlay는 액터 종료 시 항상 호출되므로 여기서 확실히 떼어낸다.
+	if (IsValid(InventoryWidget) && InventoryWidget->IsInViewport())
+	{
+		InventoryWidget->RemoveFromParent();
+	}
+
+	if (IsValid(CharacterStatusWidget) && CharacterStatusWidget->IsInViewport())
+	{
+		CharacterStatusWidget->RemoveFromParent();
+	}
+
+	UIOnly.SetWidgetToFocus(TSharedPtr<SWidget>());
+	SetInputMode(GameOnly);
+	InventoryWidget = nullptr;
+	CharacterStatusWidget = nullptr;
+	Super::EndPlay(EndPlayReason);
+}
+
 void AZPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -69,6 +92,7 @@ void AZPlayerController::ToggleInventory()
 		{
 			InventoryWidget->RemoveFromParent();
 			//InventoryWidget->SetVisibility(ESlateVisibility::Visible); // 보이기
+			UIOnly.SetWidgetToFocus(TSharedPtr<SWidget>());
 			SetInputMode(GameOnly);
 			SetShowMouseCursor(false);
 		}
@@ -100,7 +124,8 @@ void AZPlayerController::InventoryWidgetInitialize()
 				InventoryWidget->InitializeWidget(SpatialInventoryComponent, EquipmentComponent);
 				InventoryWidget->SetOwningPlayer(this);
 				SetShowMouseCursor(false);
-				SetInputMode(GameOnly);
+				UIOnly.SetWidgetToFocus(TSharedPtr<SWidget>());
+			SetInputMode(GameOnly);
 			}
 		}
 	}

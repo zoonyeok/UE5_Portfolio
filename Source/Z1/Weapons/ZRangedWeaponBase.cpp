@@ -200,9 +200,9 @@ UNiagaraComponent* AZRangedWeaponBase::SpawnMuzzleFX()
         EAttachLocation::SnapToTarget, true);
 }
 
-EInventoryActionResult AZRangedWeaponBase::PickUp(APawn* Player)
+EInventoryActionResult AZRangedWeaponBase::PickUp_Implementation(APawn* Player)
 {
-    return Super::PickUp(Player);
+    return Super::PickUp_Implementation(Player);
 }
 
 UZInventoryItem* AZRangedWeaponBase::ConvertToInventoryItem()

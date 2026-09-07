@@ -154,9 +154,9 @@ protected:
 
     UNiagaraComponent* SpawnMuzzleFX();
 
-    virtual EInventoryActionResult PickUp(APawn* Player);
-
-    virtual UZInventoryItem* ConvertToInventoryItem();
+    virtual EInventoryActionResult PickUp_Implementation(APawn* Player) override;
+    
+    virtual UZInventoryItem* ConvertToInventoryItem() override;
 
 private:
     FAmmoData CurrentAmmo;

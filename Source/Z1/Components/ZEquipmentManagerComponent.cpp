@@ -58,7 +58,10 @@ bool UZEquipmentManagerComponent::EquipItem(EItemSlotType SlotType, const TObjec
 			{
 				if (TObjectPtr<UZAnimInstance> AnimInstance = Cast<UZAnimInstance>(OwnerCharacter->GetMesh()->GetAnimInstance()))
 				{
-					AnimInstance->SetAnimationLayerByWeapon(Weapon->GetArmedCharacterAnimLayer());
+					//AnimInstance->SetAnimationLayerByWeapon(Weapon->GetArmedCharacterAnimLayer());
+
+					OwnerCharacter->GetMesh()->SetAnimInstanceClass(Weapon->GetArmedCharacterAnimLayer());
+					
 					AnimInstance->PlayAnimMontage(Weapon->GetEquipAnimMontage());
 
 					EquippedInventoryItems.Add(SlotType, Item);
@@ -75,6 +78,8 @@ bool UZEquipmentManagerComponent::EquipItem(EItemSlotType SlotType, const TObjec
 
 	if (IsValid(WorldItem))
 	{
+		EquippedInventoryItems.Add(SlotType, Item);
+		EquippedWorldItems.Add(SlotType, WorldItem);
 		return true;
 	}
 	
@@ -118,7 +123,8 @@ bool UZEquipmentManagerComponent::UnEquipItem(EItemSlotType SlotType, const TObj
 				{
 					if (IsValid(Weapon->GetDisarmedCharacterAnimLayer()) && IsValid(Weapon->GetDisarmAnimMontage()))
 					{
-						AnimInstance->SetAnimationLayerByWeapon(Weapon->GetDisarmedCharacterAnimLayer());
+						OwnerCharacter->GetMesh()->SetAnimInstanceClass(Weapon->GetDisarmedCharacterAnimLayer());
+						//AnimInstance->SetAnimationLayerByWeapon(Weapon->GetDisarmedCharacterAnimLayer());
 						AnimInstance->PlayAnimMontage(Weapon->GetDisarmAnimMontage());
 						//TODO : 더 정확하게 맞추려면 Animnotify
 						AnimInstance->OnMontageEnded.AddDynamic(this, &ThisClass::HandleDisarmMontageEnd);

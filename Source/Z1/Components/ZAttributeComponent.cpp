@@ -2,7 +2,7 @@
 
 
 #include "Components/ZAttributeComponent.h"
-#include "ZGameInstance.h"
+#include "Net/UnrealNetwork.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(ZAttributeComponent)
 
@@ -21,6 +21,7 @@ UZAttributeComponent::UZAttributeComponent()
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = false;
+	SetIsReplicatedByDefault(true);
 
 	// ...
 	this->CurrentHP = 100;
@@ -37,7 +38,12 @@ void UZAttributeComponent::BeginPlay()
 	Super::BeginPlay();
 
 	// 임시땜빵 : PlayerState에서 업데이트 해줄것, SaveGameSubsystem과 연동
-	FCharacterStats PlayerStats;
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	FCharacterStats PlayerStats{};
 	PlayerStats.MaxHP = 100.f;
 	PlayerStats.MaxMana = 100.f;
 	PlayerStats.MaxBetaEnergy = 100;
@@ -52,115 +58,111 @@ FCharacterStats UZAttributeComponent::GetFCharacterStats()
 	return CharacterStats;
 }
 
+void UZAttributeComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UZAttributeComponent, CurrentHP);
+	DOREPLIFETIME(UZAttributeComponent, CurrentMana);
+	DOREPLIFETIME(UZAttributeComponent, CurrentStamina);
+	DOREPLIFETIME(UZAttributeComponent, CurrentBetaEnergy);
+	DOREPLIFETIME(UZAttributeComponent, CurrentShield);
+	DOREPLIFETIME(UZAttributeComponent, AttackPower);
+	DOREPLIFETIME(UZAttributeComponent, ShieldAttackPower);
+	DOREPLIFETIME(UZAttributeComponent, CharacterStats);
+}
+
 void UZAttributeComponent::InitializeCharacterStats(FCharacterStats PlayerStats)
 {
-	this->CharacterStats = PlayerStats;
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
 
-	this->CurrentHP = PlayerStats.MaxHP;
-	this->CurrentBetaEnergy = PlayerStats.MaxBetaEnergy;
-	this->CurrentShield = PlayerStats.Shield;
-	this->CurrentMana = PlayerStats.MaxMana;
-	this->CurrentStamina = PlayerStats.MaxStamina;
+	CharacterStats = PlayerStats;
+	CurrentHP = FMath::Max(0.f, PlayerStats.MaxHP);
+	CurrentMana = FMath::Max(0.f, PlayerStats.MaxMana);
+	CurrentStamina = FMath::Max(0.f, PlayerStats.MaxStamina);
+	CurrentBetaEnergy = FMath::Max(0.f, PlayerStats.MaxBetaEnergy);
+	CurrentShield = FMath::Max(0.f, PlayerStats.Shield);
+	AttackPower = PlayerStats.Attack;
+	ShieldAttackPower = PlayerStats.ShieldAttack;
+	
+	OnCharacterStatsChanged.Broadcast();
 }
 
 bool UZAttributeComponent::ChangeCurrentHP(UObject* InstigatorActor, float DeltaHP)
 {
-	if (!GetOwner()->CanBeDamaged() && DeltaHP < 0.0f)
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !FMath::IsFinite(DeltaHP))
+	{
+		return false;
+	}
+	if ((!GetOwner()->CanBeDamaged() && DeltaHP < 0.f) || InstigatorActor == GetOwner())
+	{
+		return false;
+	}
+	if (DeltaHP < 0.f)
+	{
+		DeltaHP *= CVarDamageMultiplier.GetValueOnGameThread();
+	}
+	if (!FMath::IsFinite(DeltaHP))
 	{
 		return false;
 	}
 
-	if (InstigatorActor == GetOwner())
+	const float OldHP = CurrentHP;
+	CurrentHP = FMath::Clamp(CurrentHP + DeltaHP, 0.f, FMath::Max(0.f, CharacterStats.MaxHP));
+	const float ActualDelta = CurrentHP - OldHP;
+	if (FMath::IsNearlyZero(ActualDelta))
 	{
 		return false;
 	}
-
-	if (DeltaHP < 0.0f)
-	{
-		const float DamageMultiplier = CVarDamageMultiplier.GetValueOnGameThread();
-		DeltaHP *= DamageMultiplier;
-	}
-
-	float OldHealth = CurrentHP;
-	float NewHealth = FMath::Clamp(CurrentHP + DeltaHP, 0.0f, CharacterStats.MaxHP);
-
-	float ActualDelta = NewHealth - OldHealth;
-
-	// Is Server?
-	//if (GetOwner()->HasAuthority())
-	//{
-	//	CurrentHP = NewHealth;
-
-	//	if (!FMath::IsNearlyZero(ActualDelta))
-	//	{
-	//		// 🎯 Delegate 호출: UI에서 HP 변화 감지
-	//		OnHpChanged.Broadcast(Cast<AActor>(InstigatorActor), this, CurrentHP, ActualDelta);
-	//	}
-
-	//	if (!FMath::IsNearlyZero(ActualDelta))
-	//	{
-	//		MulticastHealthChanged(InstigatorActor, CurrentHP, ActualDelta);
-	//	}
-
-	//	// Died
-	//	if (ActualDelta < 0.0f && FMath::IsNearlyZero(CurrentHP))
-	//	{
-	//		ASGameModeBase* GM = GetWorld()->GetAuthGameMode<ASGameModeBase>();
-	//		if (GM)
-	//		{
-	//			GM->OnActorKilled(GetOwner(), InstigatorActor);
-	//		}
-	//	}
-	//}
-
-	//ClientCode : ServerCode추가하면 삭제 
-	CurrentHP = NewHealth;
-	OnHpChanged.Broadcast(Cast<AActor>(InstigatorActor), this, NewHealth, ActualDelta);
-
-	return !FMath::IsNearlyZero(ActualDelta);
+	OnHpChanged.Broadcast(Cast<AActor>(InstigatorActor), this, CurrentHP, ActualDelta);
+	return true;
 }
 
 bool UZAttributeComponent::ChangeCurrentMana(UObject* InstigatorActor, float DeltaMana)
 {
-	//
-	float OldMana = CurrentMana;
-	float NewMana = FMath::Clamp(CurrentMana + DeltaMana, 0.0f, CharacterStats.MaxMana);
-
-	float ActualDelta = NewMana - OldMana;
-
-	// Is Server?
-	if (GetOwner()->HasAuthority())
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !FMath::IsFinite(DeltaMana))
 	{
-		CurrentMana = NewMana;
-
-		if (!FMath::IsNearlyZero(ActualDelta))
-		{
-			// 🎯 Delegate 호출: UI에서 HP 변화 감지
-			OnManaChanged.Broadcast(Cast<AActor>(InstigatorActor), this, CurrentMana, ActualDelta);
-		}
-
-		//if (!FMath::IsNearlyZero(ActualDelta))
-		//{
-		//	MulticastHealthChanged(InstigatorActor, CurrentHP, ActualDelta);
-		//}
-
-		//// Died
-		//if (ActualDelta < 0.0f && FMath::IsNearlyZero(CurrentHP))
-		//{
-		//	ASGameModeBase* GM = GetWorld()->GetAuthGameMode<ASGameModeBase>();
-		//	if (GM)
-		//	{
-		//		GM->OnActorKilled(GetOwner(), InstigatorActor);
-		//	}
-		//}
+		return false;
 	}
-
-	return !FMath::IsNearlyZero(ActualDelta);
+	const float OldMana = CurrentMana;
+	CurrentMana = FMath::Clamp(CurrentMana + DeltaMana, 0.f, FMath::Max(0.f, CharacterStats.MaxMana));
+	const float ActualDelta = CurrentMana - OldMana;
+	if (FMath::IsNearlyZero(ActualDelta))
+	{
+		return false;
+	}
+	OnManaChanged.Broadcast(Cast<AActor>(InstigatorActor), this, CurrentMana, ActualDelta);
+	return true;
 }
 
 bool UZAttributeComponent::ChangeCurrentBetaEnergy(UObject* InstigatorActor, float DeltaBetaEnergy)
 {
-	return false;
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !FMath::IsFinite(DeltaBetaEnergy))
+	{
+		return false;
+	}
+	const float OldEnergy = CurrentBetaEnergy;
+	CurrentBetaEnergy = FMath::Clamp(CurrentBetaEnergy + DeltaBetaEnergy, 0.f,
+		FMath::Max(0.f, CharacterStats.MaxBetaEnergy));
+	return !FMath::IsNearlyZero(CurrentBetaEnergy - OldEnergy);
+}
+
+void UZAttributeComponent::OnRep_CurrentHP(float OldHP)
+{
+	// State replication carries no hit instigator and may combine several changes.
+	OnHpChanged.Broadcast(nullptr, this, CurrentHP, CurrentHP - OldHP);
+}
+
+void UZAttributeComponent::OnRep_CurrentMana(float OldMana)
+{
+	OnManaChanged.Broadcast(nullptr, this, CurrentMana, CurrentMana - OldMana);
+}
+
+void UZAttributeComponent::OnRep_CharacterStats()
+{
+	OnCharacterStatsChanged.Broadcast();
 }
 
 float UZAttributeComponent::GetCurrentHpPercent() const

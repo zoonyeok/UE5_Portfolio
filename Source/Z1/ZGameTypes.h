@@ -159,7 +159,7 @@ struct FItemStaticData : public FTableRowBase
 
 	//UI
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Data")
-	FVector2D ItemGridSize;
+	FIntPoint ItemGridSize;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Data")
 	TObjectPtr<UMaterialInstance> IconMaterialInstance;

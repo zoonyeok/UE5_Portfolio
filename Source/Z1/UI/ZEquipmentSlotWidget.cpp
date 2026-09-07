@@ -59,6 +59,7 @@ bool UZEquipmentSlotWidget::HandleDropItem(UZInventoryItemWidget* DroppedWidget,
 
 			if (EquipmentManagerComponent->EquipItem(WidgetItemSlotType, InventoryItem))
 			{
+				// AddChild detaches the widget from its current panel or viewport.
 				if (UCanvasPanelSlot* SlotPanel = Cast<UCanvasPanelSlot>(SlotCanvasPanel.Get()->AddChild(DroppedWidget)))
 				{
 					SlotPanel->SetAutoSize(true);

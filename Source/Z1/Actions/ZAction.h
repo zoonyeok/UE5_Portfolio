@@ -44,14 +44,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = Action)
 	virtual bool CanStartAction(AActor* Instigator);
 
-	FORCEINLINE FGameplayTagContainer& GetGrantsTags() { return GrantsTags; }
-	FORCEINLINE FGameplayTagContainer& GetBlockedTags() { return BlockedTags; }
+	const FGameplayTagContainer& GetGrantsTags() const { return GrantsTags; }
+	
+	const FGameplayTagContainer& GetBlockedTags() const { return BlockedTags; }
+	
+	bool IsBlockedByTags(const FGameplayTagContainer& OwnedTags) const;
 
 	UFUNCTION(BlueprintCallable, Category = Action)
 	bool IsRunning() const;
 
 	UFUNCTION(BlueprintCallable, Category = Action)
 	bool IsBeUpdated() const;
+	
+	//bool IsOnCooldown() const { return GetWorld()->GetTimeSeconds() < CooldownEndTime; }
 	
 	virtual UWorld* GetWorld() const override;
 
@@ -81,4 +86,10 @@ protected:
 
 	bool bIsRunning = false;
 	bool bIsBeUpdate = false;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Cooldown")
+	float CooldownEndTime;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Cooldown")
+	float CooldownTime;
 };
